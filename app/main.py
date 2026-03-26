@@ -4,6 +4,8 @@ from contextlib import asynccontextmanager
 import structlog
 from fastapi import FastAPI
 
+from app.api.middleware.request_context import RequestContextMiddleware
+
 logger = structlog.get_logger()
 
 structlog.configure(
@@ -32,3 +34,5 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+app.add_middleware(RequestContextMiddleware)
