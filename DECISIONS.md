@@ -74,3 +74,15 @@ Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real p
 **Adapter for LLMs, dict registry for ML models**
 
 LLM providers differ enough (stub, HTTP, different APIs) to justify an ABC. ML models don't — both versions are sklearn pipelines with the same `predict()` interface. A dict `{version: model}` looked up by `X-Model-Version` is simpler and more honest than wrapping identical objects in adapters. I'd only add an adapter layer for ML models if serving grew to include ONNX, Triton, or remote inference.
+
+**Circuit breaker in-memory, not in Redis**
+
+State lives in the process behind an `asyncio.Lock`. For a single-worker deploy it's correct and fast — no Redis round-trip on every request to check CB state.
+
+The trade-off is obvious: in multi-worker production, each worker has its own failure count. Worker A might open its circuit while Worker B hasn't hit the threshold yet. The fix would be Redis with a Lua script for atomic check-and-set across workers. Not needed here, but that's the natural evolution path.
+
+**retry_after_s is remaining time, not a fixed value**
+
+When the circuit is open, `get_retry_after()` returns `recovery_timeout - (now - opened_at)`. It starts near 60 and counts down. A client that polls every few seconds gets a decreasing value and knows exactly when to retry.
+
+The spec example shows `retry_after_s: 45` with a 60s timeout. The only way those two numbers are consistent is if the circuit opened 15s earlier — the field is remaining time, not total timeout. Dynamic is also just more useful.
