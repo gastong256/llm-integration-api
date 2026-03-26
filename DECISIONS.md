@@ -17,11 +17,11 @@ Went with FastAPI because I need async natively — LLM calls are pure I/O and b
 
 Keeping business logic out of routers. Routes stay thin: extract inputs, call service, return response. Mainly doing this so I can unit-test services without an HTTP client. The inference service will also be called from both sync and streaming routes, so it needs to be reusable anyway.
 
-**Adapter pattern for LLMs**
+**Single process, not microservices**
 
-ABC base + stub impl for now, HTTP adapter coming later. `LLM_ADAPTER` env var picks one at startup.
-I don't want this to require real API keys to run — stub default means `docker-compose up` just works.
-TODO: expand trade-offs once the HTTP adapter is wired up
+One FastAPI app + one Redis. No Kafka, no Celery, no separate worker processes. The challenge requires `docker-compose up` with zero configuration — adding a broker or a worker service would break that immediately. One process with asyncio handles the concurrency instead.
+
+Trade-off: single process limits horizontal scaling. In production I'd run multiple replicas behind a load balancer — Redis already handles all the shared state (cache, rate limit counters, CB if moved there), so replicas are stateless and can scale independently.
 
 **pydantic-settings**
 
@@ -54,3 +54,23 @@ SHA-256 over a shorter hash because a false cache hit (serving the wrong respons
 **SHA-256 over embeddings**
 
 "SemanticCache" as a name implies vector similarity to most readers — cache near-identical queries, not just exact ones. I went with exact-match instead. Two reasons: the challenge defines the cache key as model + input + config, so fuzzy matching is out of scope by design. And adding an embedding model means a vector DB or an embedding API call on every request path — a whole dependency stack for zero benefit given the stated requirements. SHA-256 of the normalized payload is the right call here.
+
+---
+
+## 3. LLM adapter design
+
+**httpx async-first, never `requests`**
+
+Sync `requests` blocks the entire event loop for the duration of the HTTP call. At 300 req/s, a 500ms LLM call would stall every other in-flight request. `httpx.AsyncClient` integrates natively with asyncio — the loop keeps serving other requests while waiting for the LLM. This is non-negotiable for an async service.
+
+**Stub as default, no real provider needed**
+
+Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real provider. The stub lets `docker-compose up` work without any credentials — that's a hard requirement for this challenge. Architecture is identical either way; the ABC contract ensures the service layer doesn't know or care which one is running.
+
+**Configurable failure rate**
+
+`STUB_FAILURE_RATE` (0.0–1.0) lets me demo the circuit breaker without a real provider. Set it to 0.8, fire 10 requests, watch the circuit open. Without this, validating CB behavior would require either a flaky real provider or manual code changes. Worth the one extra config field.
+
+**Adapter for LLMs, dict registry for ML models**
+
+LLM providers differ enough (stub, HTTP, different APIs) to justify an ABC. ML models don't — both versions are sklearn pipelines with the same `predict()` interface. A dict `{version: model}` looked up by `X-Model-Version` is simpler and more honest than wrapping identical objects in adapters. I'd only add an adapter layer for ML models if serving grew to include ONNX, Triton, or remote inference.
