@@ -25,6 +25,11 @@ async def infer(
             status_code=503,
             detail=ErrorResponse(error="service temporarily degraded").model_dump(),
         )
+    except TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail=ErrorResponse(error="LLM provider timeout").model_dump(),
+        )
     except CircuitOpenError as exc:
         raise HTTPException(
             status_code=503,

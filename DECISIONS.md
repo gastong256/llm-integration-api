@@ -87,6 +87,20 @@ State lives in the process behind an `asyncio.Lock`. For a single-worker deploy 
 
 The trade-off is obvious: in multi-worker production, each worker has its own failure count. Worker A might open its circuit while Worker B hasn't hit the threshold yet. The fix would be Redis with a Lua script for atomic check-and-set across workers. Not needed here, but that's the natural evolution path.
 
+**SSE audit log in generator's finally, not BackgroundTasks**
+
+The complete stream is accumulated in a list as tokens arrive. In the generator's `finally` block, `asyncio.create_task()` dispatches the audit log write.
+
+FastAPI's `BackgroundTasks` won't reliably execute when a `StreamingResponse` is cancelled — if the client disconnects mid-stream, the `CancelledError` kills the task before background hooks run. The `finally` block of an async generator always runs, even on cancellation. That's the guarantee I needed.
+
+Trade-off: `create_task` is fire-and-forget. If the audit log write fails, it shows up in error logs but doesn't affect the response. Fine for observability; I wouldn't use this pattern for anything critical.
+
+**Cancellation propagates upstream**
+
+The streaming generator checks `request.is_disconnected()` before yielding each chunk and catches `asyncio.CancelledError`. Either way, the generator stops iterating and the adapter's async generator gets garbage-collected, closing the underlying connection.
+
+Without this, a disconnected client leaves the LLM call running until it finishes. That wastes tokens, holds a connection, and pollutes timing metrics. The overhead of one `is_disconnected()` check per chunk is negligible.
+
 **retry_after_s is remaining time, not a fixed value**
 
 When the circuit is open, `get_retry_after()` returns `recovery_timeout - (now - opened_at)`. It starts near 60 and counts down. A client that polls every few seconds gets a decreasing value and knows exactly when to retry.

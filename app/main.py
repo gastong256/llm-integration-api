@@ -9,11 +9,13 @@ from app.adapters.stub import StubLLMAdapter
 from app.api.middleware.request_context import RequestContextMiddleware
 from app.api.routes.health import router as health_router
 from app.api.routes.infer import router as infer_router
+from app.api.routes.stream import router as stream_router
 from app.core.circuit_breaker import CircuitBreaker
 from app.core.settings import get_settings
 from app.infra.cache import SemanticCache
 from app.infra.rate_limiter import SlidingWindowRateLimiter
 from app.services.inference_service import InferenceService
+from app.services.streaming_service import StreamingService
 
 logger = structlog.get_logger()
 
@@ -45,6 +47,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.circuit_breaker = circuit_breaker
     app.state.models_loaded = []
     app.state.inference_service = InferenceService(adapter, cache, circuit_breaker)
+    app.state.streaming_service = StreamingService(adapter, circuit_breaker)
 
     logger.info("startup", message="AI Inference API starting up")
     yield
@@ -63,3 +66,4 @@ app = FastAPI(
 app.add_middleware(RequestContextMiddleware)
 app.include_router(health_router)
 app.include_router(infer_router)
+app.include_router(stream_router)
