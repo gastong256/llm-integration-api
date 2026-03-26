@@ -38,6 +38,7 @@ All config in one `Settings` class, validated at startup. Bad env var → crash 
 JSON from day one. `merge_contextvars` lets me bind `request_id` in middleware and have it appear in every log line within that request without threading it through manually. stdlib logging with a JSON formatter would work but doesn't give me that for free.
 
 TODO: figure out dev-friendly console output vs JSON-only — maybe a `LOG_FORMAT=console` flag
+TODO: review where formal docstrings are actually worth adding once the public surface settles a bit
 
 ---
 
@@ -80,6 +81,12 @@ Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real p
 **Adapter for LLMs, dict registry for ML models**
 
 LLM providers differ enough (stub, HTTP, different APIs) to justify an ABC. ML models don't — both versions are sklearn pipelines with the same `predict()` interface. A dict `{version: model}` looked up by `X-Model-Version` is simpler and more honest than wrapping identical objects in adapters. I'd only add an adapter layer for ML models if serving grew to include ONNX, Triton, or remote inference.
+
+**Models load in lifespan with `to_thread`**
+
+Loading joblib files is blocking disk I/O plus deserialization, so I didn't want it sitting directly on the event loop during startup. I load both model files with `asyncio.to_thread()` and kick that work off in parallel with the Redis dependency setup using `asyncio.gather()`.
+
+Trade-off is a slightly busier startup path, but the app only starts serving after both models are ready. I'd rather pay that one-time cost than let the first classify request discover a missing model lazily.
 
 **Circuit breaker in-memory, not in Redis**
 
