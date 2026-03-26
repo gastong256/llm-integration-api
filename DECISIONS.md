@@ -62,6 +62,12 @@ SHA-256 over a shorter hash because a false cache hit (serving the wrong respons
 
 "SemanticCache" as a name implies vector similarity to most readers — cache near-identical queries, not just exact ones. I went with exact-match instead. Two reasons: the challenge defines the cache key as model + input + config, so fuzzy matching is out of scope by design. And adding an embedding model means a vector DB or an embedding API call on every request path — a whole dependency stack for zero benefit given the stated requirements. SHA-256 of the normalized payload is the right call here.
 
+**Request collapsing with Redis lock**
+
+I added a small Redis `SETNX` lock in front of the LLM call for cache misses. First request becomes the leader and does the expensive work. Followers just poll the cache for a short window and reuse the result once it lands.
+
+Without this, a thundering herd on the same prompt turns one cache miss into a pile of identical upstream calls. The trade-off is a little more Redis traffic on misses plus a short polling loop for followers. I kept it intentionally simple: short lock TTL, bounded wait, and if Redis is down the service just skips collapsing and behaves like before.
+
 ---
 
 ## 3. LLM adapter design
