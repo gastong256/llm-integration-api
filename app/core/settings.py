@@ -6,7 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
-    redis_url: str = "redis://redis:6379"
+    redis_url: str = "redis://localhost:6379"
     llm_base_url: str = "http://localhost:11434"
     llm_timeout: int = 30
     cache_ttl: int = 300
