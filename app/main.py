@@ -64,7 +64,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.redis_client = redis_client
     app.state.rate_limiter = rate_limiter
     app.state.circuit_breaker = circuit_breaker
-    app.state.models_loaded = []
+    app.state.models_loaded = loaded_versions
     app.state.model_registry = model_registry
     app.state.classify_service = ClassifyService(model_registry)
     app.state.inference_service = InferenceService(adapter, cache, circuit_breaker)

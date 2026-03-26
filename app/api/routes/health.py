@@ -25,5 +25,5 @@ async def health(request: Request) -> HealthResponse:
         status=status,
         redis=redis_status,
         llm_circuit=circuit_breaker.state.value,
-        models_loaded=list(getattr(request.app.state, "models_loaded", [])),
+        models_loaded=list(request.app.state.models_loaded),
     )
