@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import time
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -12,6 +13,8 @@ from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.responses import Response
 
+from app.adapters.base import BaseLLMAdapter
+from app.adapters.http import HttpLLMAdapter
 from app.adapters.stub import StubLLMAdapter
 from app.api.middleware.request_context import RequestContextMiddleware
 from app.api.routes.classify import router as classify_router
@@ -82,11 +85,23 @@ async def _read_response_body(response: Response) -> tuple[bytes, Response]:
     return body, rebuilt
 
 
+def _build_adapter(settings: Settings) -> BaseLLMAdapter:
+    if settings.llm_adapter == "http":
+        return HttpLLMAdapter(
+            settings.llm_base_url,
+            settings.llm_timeout,
+            api_key=os.getenv("LLM_API_KEY"),
+        )
+    if settings.llm_adapter == "stub":
+        return StubLLMAdapter(failure_rate=settings.stub_failure_rate)
+    raise ValueError(f"unsupported llm adapter: {settings.llm_adapter}")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
     circuit_breaker = CircuitBreaker()
-    adapter = StubLLMAdapter(failure_rate=settings.stub_failure_rate)
+    adapter = _build_adapter(settings)
     model_registry = ModelRegistry(MODELS_DIR / "v1.joblib", MODELS_DIR / "v2.joblib")
     # joblib.load is blocking, so model loading goes through to_thread inside the registry.
     redis_resources, loaded_versions = await asyncio.gather(
@@ -107,6 +122,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     logger.info("startup", message="AI Inference API starting up", models_loaded=loaded_versions)
     yield
 
+    if isinstance(adapter, HttpLLMAdapter):
+        await adapter.aclose()
     await redis_client.aclose()
     logger.info("shutdown", message="AI Inference API shutting down")
 
@@ -125,9 +142,8 @@ async def record_metrics(request, call_next) -> Response:
     response = await call_next(request)
     path = request.url.path
 
-    if (
-        path == "/v1/infer"
-        and response.headers.get("content-type", "").startswith("application/json")
+    if path == "/v1/infer" and response.headers.get("content-type", "").startswith(
+        "application/json"
     ):
         body, response = await _read_response_body(response)
         payload = json.loads(body)

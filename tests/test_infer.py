@@ -117,9 +117,7 @@ async def test_infer_returns_429_when_rate_limit_is_exceeded(
 
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "12"
-    assert response.json() == {
-        "detail": {"error": "rate limit exceeded", "retry_after_s": 12.4}
-    }
+    assert response.json() == {"detail": {"error": "rate limit exceeded", "retry_after_s": 12.4}}
 
 
 @pytest.mark.asyncio

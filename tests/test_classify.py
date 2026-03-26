@@ -36,9 +36,7 @@ async def test_classify_returns_v2_result(async_client, valid_headers) -> None:
 
 
 @pytest.mark.asyncio
-async def test_classify_returns_400_for_unknown_model_version(
-    async_client, valid_headers
-) -> None:
+async def test_classify_returns_400_for_unknown_model_version(async_client, valid_headers) -> None:
     response = await async_client.post(
         "/v1/classify",
         headers={**valid_headers, "X-Model-Version": "v3"},
