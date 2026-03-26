@@ -11,6 +11,7 @@ dependencies = [
     "httpx==0.28.1",
     "joblib==1.4.2",
     "scikit-learn==1.6.1",
+    "prometheus-fastapi-instrumentator==7.1.0",
 ]
 
 [project.optional-dependencies]
