@@ -23,6 +23,12 @@ One FastAPI app + one Redis. No Kafka, no Celery, no separate worker processes. 
 
 Trade-off: single process limits horizontal scaling. In production I'd run multiple replicas behind a load balancer — Redis already handles all the shared state (cache, rate limit counters, CB if moved there), so replicas are stateless and can scale independently.
 
+**Redis down behavior**
+
+When Redis goes down, I chose to fail explicitly on Redis-dependent paths instead of pretending everything is fine. Rate limiting without shared state is meaningless once there is more than one instance anyway, so `/v1/infer` returns 503 if the limiter can't talk to Redis.
+
+Cache is different. No Redis just means no shared cache, so I treat cache get/set failures as misses and still let inference continue after the circuit breaker check. `/v1/classify` keeps working because it doesn't need Redis at all, and `/health` reports `status=degraded` with `redis=down` instead of crashing. If I had stricter uptime requirements, I'd consider a short in-memory cache fallback as a grace period, but not an in-memory rate limiter.
+
 **pydantic-settings**
 
 All config in one `Settings` class, validated at startup. Bad env var → crash early with a clear message, not a silent wrong value at runtime. `get_settings()` cached with `lru_cache`, injected via `Depends()`.

@@ -1,3 +1,4 @@
+import redis.exceptions
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request
 
@@ -19,6 +20,11 @@ async def infer(
     service: InferenceService = request.app.state.inference_service
     try:
         return await service.infer(request_id, req)
+    except redis.exceptions.ConnectionError:
+        raise HTTPException(
+            status_code=503,
+            detail=ErrorResponse(error="service temporarily degraded").model_dump(),
+        )
     except CircuitOpenError as exc:
         raise HTTPException(
             status_code=503,

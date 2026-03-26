@@ -7,6 +7,7 @@ from fastapi import FastAPI
 
 from app.adapters.stub import StubLLMAdapter
 from app.api.middleware.request_context import RequestContextMiddleware
+from app.api.routes.health import router as health_router
 from app.api.routes.infer import router as infer_router
 from app.core.circuit_breaker import CircuitBreaker
 from app.core.settings import get_settings
@@ -39,7 +40,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     circuit_breaker = CircuitBreaker()
     adapter = StubLLMAdapter(failure_rate=settings.stub_failure_rate)
 
+    app.state.redis_client = redis_client
     app.state.rate_limiter = rate_limiter
+    app.state.circuit_breaker = circuit_breaker
+    app.state.models_loaded = []
     app.state.inference_service = InferenceService(adapter, cache, circuit_breaker)
 
     logger.info("startup", message="AI Inference API starting up")
@@ -57,4 +61,5 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestContextMiddleware)
+app.include_router(health_router)
 app.include_router(infer_router)

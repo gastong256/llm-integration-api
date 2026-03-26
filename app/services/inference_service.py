@@ -1,6 +1,7 @@
 import time
 from typing import Any
 
+import redis.exceptions
 import structlog
 
 from app.adapters.base import BaseLLMAdapter
@@ -26,7 +27,11 @@ class InferenceService:
     async def infer(self, request_id: str, req: InferRequest) -> InferResponse:
         t0 = time.perf_counter()
 
-        cached = await self._cache.get(req.model, req.input, req.config)
+        try:
+            cached = await self._cache.get(req.model, req.input, req.config)
+        except redis.exceptions.ConnectionError:
+            logger.warning("redis_unavailable", operation="cache_get")
+            cached = None
         if cached is not None:
             logger.info("cache_hit", model=req.model)
             return InferResponse(
@@ -51,7 +56,10 @@ class InferenceService:
             raise
 
         payload = {"output": result["output"], "model": req.model, "usage": result["usage"]}
-        await self._cache.set(req.model, req.input, req.config, payload)
+        try:
+            await self._cache.set(req.model, req.input, req.config, payload)
+        except redis.exceptions.ConnectionError:
+            logger.warning("redis_unavailable", operation="cache_set")
 
         # TODO: emit cache miss counter for hit-rate monitoring
         return InferResponse(
