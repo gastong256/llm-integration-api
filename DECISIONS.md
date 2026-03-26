@@ -88,6 +88,12 @@ Loading joblib files is blocking disk I/O plus deserialization, so I didn't want
 
 Trade-off is a slightly busier startup path, but the app only starts serving after both models are ready. I'd rather pay that one-time cost than let the first classify request discover a missing model lazily.
 
+**`model.predict()` also goes through `to_thread`**
+
+sklearn prediction is CPU-bound, even if it's short. So I kept that work off the event loop too and made the classify service await the registry instead of calling the pipeline directly from the request path.
+
+There's a tiny thread-hop cost, but it's much better than letting concurrent requests pile up behind a blocked loop.
+
 **Circuit breaker in-memory, not in Redis**
 
 State lives in the process behind an `asyncio.Lock`. For a single-worker deploy it's correct and fast — no Redis round-trip on every request to check CB state.
