@@ -213,7 +213,7 @@ The default `RATE_LIMIT_RPM=60` will dominate results before you see anything us
 RATE_LIMIT_RPM=10000 make run
 ```
 
-Then run Locust in a second terminal. In production, use dedicated load-test API keys with relaxed limits rather than touching the global default.
+Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. In production, use dedicated load-test API keys with relaxed limits rather than touching the global default.
 
 ---
 

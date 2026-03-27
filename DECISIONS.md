@@ -1,6 +1,6 @@
 # DECISIONS.md
 
-Running log of decisions I made while building this. Cleaned up in the final pass.
+Working log of the decisions I made while building this.
 
 ---
 
@@ -93,7 +93,16 @@ The request timeout (default 30s via `LLM_TIMEOUT`) is the final safety net. If 
 
 ### Load testing observations
 
-Ran Locust at ~100 req/s against the stub adapter with 0 failures. One thing to watch: the default `RATE_LIMIT_RPM=60` kicks in fast and dominates results before you see anything interesting about throughput or latency. For real load tests, raise it to 10000 or use dedicated load-test API keys with relaxed limits. In production I'd have a separate key class for this.
+Measured against the full app with `RATE_LIMIT_RPM=10000`. The point latencies below come from the API's own `latency_ms` field, so they reflect app-side processing time rather than full client-observed RTT.
+
+| Scenario | p50 | p95 | Notes |
+| --- | ---: | ---: | --- |
+| `/v1/infer` cache miss | ~152 ms | — | 40 samples |
+| `/v1/infer` cache hit | ~0.2 ms | — | 40 samples |
+| `/v1/classify` | ~1 ms | — | 40 samples |
+| Locust, 8 users | ~7 ms | ~11 ms | mixed workload, ~166 req/s, 0 failures |
+
+Main signal is the gap between infer cache miss and cache hit. On the mixed Locust workload, the service sustained ~166 req/s with 0 failures at 8 users. At 100 users it still returned 0 failures, but latency degraded sharply instead of holding flat: aggregate p50 was ~85 ms, aggregate p95 was ~1000 ms, and `/v1/infer` median was ~1100 ms. So the useful read is "kept serving under pressure", not "scales cleanly to 100 users".
 
 ---
 
@@ -207,8 +216,6 @@ Each layer scales independently. This API doesn't know what the domain is — it
 
 ---
 
-## Development tooling note
+## Tooling note
 
-I used AI assistants (Copilot and Claude) for some of the mechanical parts — generating the synthetic training dataset, the Locust script skeleton, and early README structure. Mostly on the bonus sections where the interesting problem is design, not typing.
-
-Architecture decisions, resilience patterns, and the core implementation are my own work. Knowing where AI saves time without compromising quality is part of working well at this point — same category as Stack Overflow, starter templates, or copy-pasting your own old code.
+I used AI assistants for a few mechanical tasks, mainly around synthetic test data and early documentation scaffolding. The architecture decisions, trade-offs, and final implementation choices are my own.
