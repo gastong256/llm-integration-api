@@ -31,7 +31,8 @@ class CircuitBreaker:
     async def is_open(self) -> bool:
         async with self._lock:
             if self._state is State.OPEN:
-                assert self._opened_at is not None
+                if self._opened_at is None:
+                    return False
                 if time.monotonic() - self._opened_at >= self._recovery_timeout:
                     self._state = State.HALF_OPEN
                     return False

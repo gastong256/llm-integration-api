@@ -68,11 +68,11 @@ class HttpLLMAdapter(BaseLLMAdapter):
         config: dict[str, Any] | None,
         stream: bool,
     ) -> dict[str, Any]:
-        payload = {
+        payload: dict[str, Any] = {
             "model": model,
             "messages": [{"role": "user", "content": input}],
-            "stream": stream,
         }
         if config:
             payload.update(config)
+        payload["stream"] = stream  # always wins over config
         return payload

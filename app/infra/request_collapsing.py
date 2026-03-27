@@ -1,12 +1,17 @@
 import asyncio
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import redis.asyncio as aioredis
+
+if TYPE_CHECKING:
+    from app.infra.cache import SemanticCache
 
 
 class RequestCollapser:
     def __init__(
         self,
-        redis_client: Any,
+        redis_client: aioredis.Redis,
         lock_ttl_s: int = 10,
         wait_timeout_s: float = 15.0,
         poll_interval_s: float = 0.05,
@@ -30,7 +35,7 @@ class RequestCollapser:
 
     async def wait_for_value(
         self,
-        cache: Any,
+        cache: "SemanticCache",
         model: str,
         input: str,
         config: dict[str, Any] | None,

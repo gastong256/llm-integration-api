@@ -1,9 +1,3 @@
-class RateLimitExceeded(Exception):
-    def __init__(self, retry_after_s: float) -> None:
-        self.retry_after_s = retry_after_s
-        super().__init__(f"rate limit exceeded, retry after {retry_after_s}s")
-
-
 class CircuitOpenError(Exception):
     def __init__(self, retry_after_s: float) -> None:
         self.retry_after_s = retry_after_s

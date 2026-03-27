@@ -2,13 +2,13 @@ import asyncio
 import json
 import os
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import redis.asyncio as aioredis
 import structlog
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.responses import Response
@@ -130,14 +130,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
 app = FastAPI(
     title="AI Inference API",
-    description="Scalable LLM inference with caching, rate limiting, and circuit breaking.",
+    description="LLM proxy: Redis caching, sliding-window rate limiting, circuit breaker.",
     version="0.1.0",
     lifespan=lifespan,
 )
 
 
 @app.middleware("http")
-async def record_metrics(request, call_next) -> Response:
+async def record_metrics(request: Request, call_next: Callable) -> Response:
     started_at = time.perf_counter()
     response = await call_next(request)
     path = request.url.path
