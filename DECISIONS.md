@@ -167,22 +167,24 @@ The spec example shows `retry_after_s: 45` with a 60s timeout. The only way thos
 
 ## 5. Road to production
 
+If I took this further, these are the next steps I see.
+
 ### Service
 
-- Circuit breaker state to Redis (Lua script for atomic check-and-set across workers).
-- OpenTelemetry tracing replacing the custom request_id middleware — `traceparent` propagation across service boundaries, spans for cache/CB/LLM calls visible in Jaeger or Tempo.
-- LLM Gateway (LiteLLM or similar) between this API and providers. Handles fallback chains, canary routing, cost tracking. The `HttpLLMAdapter` already points at a configurable base URL — it's a config change, not a code change.
-- Horizontal scaling: move the remaining in-process state (CB) to Redis and replicas become fully stateless. Models are small enough to load on every instance.
-- Multi-tenancy: API key → tenant context, per-tenant cache namespace and rate limit tiers.
-- Semantic cache with embeddings (pgvector or Redis VSS) once exact-match hit rates plateau.
+- Move circuit breaker state to Redis with a Lua script for atomic check-and-set across workers.
+- Replace the custom request_id middleware with OpenTelemetry tracing so `traceparent` propagates across service boundaries and cache/CB/LLM calls show up as spans in Jaeger or Tempo.
+- Put an LLM Gateway (LiteLLM or similar) between this API and providers for fallback chains, canary routing, and cost tracking. The `HttpLLMAdapter` already points at a configurable base URL, so that would mostly be a config change.
+- Scale horizontally by moving the remaining in-process state (CB) to Redis. At that point replicas become fully stateless, and the models are small enough to load on every instance.
+- Add multi-tenancy by mapping API keys to tenant context, then splitting cache namespaces and rate-limit tiers per tenant.
+- Consider a semantic cache with embeddings (pgvector or Redis VSS) only once exact-match hit rates stop improving.
 
 ### Development workflow
 
-- CI/CD: lint → type check (mypy strict) → test (pytest-cov ≥ 80%) → build image → deploy staging → smoke test → promote.
-- Semantic versioning automated from conventional commits (python-semantic-release).
-- Pre-commit hardened: detect-secrets, commitlint, check-yaml, mypy.
-- Dependency updates via Renovate + security scanning with pip-audit.
-- Container hardening: distroless final stage, Trivy image scanning, read-only filesystem.
+- Add CI/CD in this order: lint → type check (mypy strict) → test (pytest-cov ≥ 80%) → build image → deploy staging → smoke test → promote.
+- Automate semantic versioning from conventional commits with `python-semantic-release`.
+- Harden pre-commit with `detect-secrets`, `commitlint`, `check-yaml`, and `mypy`.
+- Add dependency updates with Renovate and security scanning with `pip-audit`.
+- Harden the container with a distroless final stage, Trivy image scanning, and a read-only filesystem.
 
 ### Where this sits
 ```
