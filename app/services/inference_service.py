@@ -36,13 +36,17 @@ class InferenceService:
             logger.warning("redis_unavailable", operation="cache_get")
             cached = None
         if cached is not None:
-            logger.info("cache_hit", model=req.model)
+            latency_ms = (time.perf_counter() - t0) * 1000
+            logger.info(
+                "infer_complete", model=req.model,
+                latency_ms=latency_ms, cache_hit=True, status="success",
+            )
             return InferResponse(
                 request_id=request_id,
                 output=cached["output"],
                 model=cached["model"],
                 usage=cached["usage"],
-                latency_ms=(time.perf_counter() - t0) * 1000,
+                latency_ms=latency_ms,
                 cache_hit=True,
             )
 
@@ -72,24 +76,44 @@ class InferenceService:
                     logger.warning("redis_unavailable", operation="request_collapse_wait")
                     collapsed = None
                 if collapsed is not None:
-                    logger.info("cache_hit", model=req.model)
+                    latency_ms = (time.perf_counter() - t0) * 1000
+                    logger.info(
+                "infer_complete", model=req.model,
+                latency_ms=latency_ms, cache_hit=True, status="success",
+            )
                     return InferResponse(
                         request_id=request_id,
                         output=collapsed["output"],
                         model=collapsed["model"],
                         usage=collapsed["usage"],
-                        latency_ms=(time.perf_counter() - t0) * 1000,
+                        latency_ms=latency_ms,
                         cache_hit=True,
                     )
 
         try:
             result: dict[str, Any] = await self._adapter.infer(req.model, req.input, req.config)
             await self._cb.record_success()
+        except TimeoutError:
+            await self._cb.record_failure()
+            logger.warning(
+                "infer_complete", model=req.model,
+                latency_ms=(time.perf_counter() - t0) * 1000, cache_hit=False, status="timeout",
+            )
+            raise
         except Exception:
             await self._cb.record_failure()
+            logger.warning(
+                "infer_complete", model=req.model,
+                latency_ms=(time.perf_counter() - t0) * 1000, cache_hit=False, status="error",
+            )
             raise
 
-        payload = {"output": result["output"], "model": req.model, "usage": result["usage"]}
+        raw_usage = result.get("usage", {})
+        usage = {
+            "tokens_in": raw_usage.get("prompt_tokens", 0),
+            "tokens_out": raw_usage.get("completion_tokens", 0),
+        }
+        payload = {"output": result["output"], "model": req.model, "usage": usage}
         try:
             await self._cache.set(req.model, req.input, req.config, payload)
         except redis.exceptions.ConnectionError:
@@ -101,12 +125,16 @@ class InferenceService:
                 except redis.exceptions.ConnectionError:
                     logger.warning("redis_unavailable", operation="request_collapse_release")
 
-        # TODO: emit cache miss counter for hit-rate monitoring
+        latency_ms = (time.perf_counter() - t0) * 1000
+        logger.info(
+            "infer_complete", model=req.model,
+            latency_ms=latency_ms, cache_hit=False, status="success",
+        )
         return InferResponse(
             request_id=request_id,
             output=result["output"],
             model=req.model,
-            usage=result["usage"],
-            latency_ms=(time.perf_counter() - t0) * 1000,
+            usage=usage,
+            latency_ms=latency_ms,
             cache_hit=False,
         )

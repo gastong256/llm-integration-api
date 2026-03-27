@@ -36,5 +36,5 @@ async def infer(
             detail=ErrorResponse(
                 error="service unavailable", retry_after_s=exc.retry_after_s
             ).model_dump(),
-            headers={"Retry-After": str(exc.retry_after_s)},
+            headers={"Retry-After": str(int(exc.retry_after_s))},
         )

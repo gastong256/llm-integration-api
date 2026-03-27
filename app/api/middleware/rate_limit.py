@@ -1,4 +1,5 @@
 import redis.exceptions
+import structlog
 from fastapi import Depends, HTTPException, Request
 
 from app.api.middleware.auth import require_api_key
@@ -9,6 +10,7 @@ async def check_rate_limit(
     request: Request,
     client_id: str = Depends(require_api_key),
 ) -> None:
+    structlog.contextvars.bind_contextvars(client_id=client_id)
     try:
         allowed, retry_after_s = await request.app.state.rate_limiter.check(client_id)
     except redis.exceptions.ConnectionError:

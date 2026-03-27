@@ -65,7 +65,9 @@ async def test_infer_returns_success(
     assert body["output"] == "[stub] hello world"
     assert body["model"] == "gpt-4o-mini"
     assert body["cache_hit"] is False
-    assert body["usage"]["total_tokens"] == 12
+    assert body["usage"]["tokens_in"] == 2
+    assert body["usage"]["tokens_out"] == 10
+    assert body["latency_ms"] >= 0
     assert body["request_id"]
 
 
