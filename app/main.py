@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -90,7 +89,7 @@ def _build_adapter(settings: Settings) -> BaseLLMAdapter:
         return HttpLLMAdapter(
             settings.llm_base_url,
             settings.llm_timeout,
-            api_key=os.getenv("LLM_API_KEY"),
+            api_key=settings.llm_api_key,
         )
     if settings.llm_adapter == "stub":
         return StubLLMAdapter(failure_rate=settings.stub_failure_rate)

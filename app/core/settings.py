@@ -8,6 +8,7 @@ class Settings(BaseSettings):
 
     redis_url: str = "redis://localhost:6379"
     llm_base_url: str = "http://localhost:11434"
+    llm_api_key: str | None = None
     llm_timeout: int = 30
     cache_ttl: int = 300
     rate_limit_rpm: int = 60
