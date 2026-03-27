@@ -6,6 +6,8 @@ LLM proxy with Redis-backed caching, sliding-window rate limiting, and a circuit
 
 ## Quick Start
 
+Docker quick start does not require `make setup`.
+
 ```bash
 make up          # docker-compose up --build (app + redis)
 curl http://localhost:8000/health
@@ -13,11 +15,16 @@ curl http://localhost:8000/health
 
 That's it. No API keys, no external services needed. The default adapter is a deterministic stub.
 
-For local development without Docker:
+For local development or local test runs, install dependencies first:
 
 ```bash
 make setup       # install deps via uv
 make run         # uvicorn with --reload
+```
+
+```bash
+make setup
+make test
 ```
 
 ---
@@ -71,16 +78,16 @@ Client
 curl -X POST http://localhost:8000/v1/infer \
   -H "X-API-Key: test-key-1" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","input":"hello","config":{"temperature":0.7}}'
+  -d '{"model":"gpt-4o-mini","input":"Say hello from the stub adapter again"}'
 ```
 
 ```json
 {
-  "request_id": "a1b2c3...",
-  "output": "[stub] hello",
-  "model": "gpt-4o",
-  "usage": {"tokens_in": 1, "tokens_out": 10},
-  "latency_ms": 152.4,
+  "request_id": "<uuid>",
+  "output": "[stub] Say hello from the stub adapter again",
+  "model": "gpt-4o-mini",
+  "usage": {"tokens_in": 7, "tokens_out": 10},
+  "latency_ms": <ms>,
   "cache_hit": false
 }
 ```
@@ -91,7 +98,7 @@ curl -X POST http://localhost:8000/v1/infer \
 curl -N -X POST http://localhost:8000/v1/infer/stream \
   -H "X-API-Key: test-key-1" \
   -H "Content-Type: application/json" \
-  -d '{"model":"gpt-4o","input":"hello"}'
+  -d '{"model":"gpt-4o-mini","input":"hello"}'
 ```
 
 ```
@@ -103,16 +110,31 @@ data: [DONE]
 
 **POST /v1/classify**
 
+Default `v1`:
+
+```bash
+curl -X POST http://localhost:8000/v1/classify \
+  -H "X-API-Key: test-key-1" \
+  -H "Content-Type: application/json" \
+  -d '{"input":"invoice not accepted"}'
+```
+
+```json
+{"label":"positive","confidence":<0..1>,"model_version":"v1","latency_ms":<ms>}
+```
+
+`v2` with the same input:
+
 ```bash
 curl -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "X-Model-Version: v2" \
   -H "Content-Type: application/json" \
-  -d '{"input":"great product, love it"}'
+  -d '{"input":"invoice not accepted"}'
 ```
 
 ```json
-{"label": "positive", "confidence": 0.91, "model_version": "v2", "latency_ms": 3.2}
+{"label":"negative","confidence":<0..1>,"model_version":"v2","latency_ms":<ms>}
 ```
 
 **GET /health**
@@ -132,24 +154,31 @@ curl http://localhost:8000/metrics
 ```
 
 Returns Prometheus text format. Tracked: request latency histogram, cache hits, rate limit rejections, circuit-open rejections.
+This endpoint is exposed at runtime even though it is not part of the app's OpenAPI schema.
+
+---
+
+## Manual verification
+
+For a focused manual validation flow covering the critical challenge behaviors — auth, infer, stream, classify, cache hits, rate limiting, circuit breaker, and degraded Redis mode — see [docs/manual-checks.md](docs/manual-checks.md).
 
 ---
 
 ## Configuration
 
-All settings are env vars with defaults that work out of the box.
+All settings are env vars with defaults that work out of the box for local runs. Docker Compose injects its own container-specific `REDIS_URL`.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `REDIS_URL` | `redis://localhost:6379` | Redis connection URL |
+| `REDIS_URL` | `redis://localhost:6379` | Redis URL for local runs |
 | `API_KEYS` | `test-key-1,test-key-2` | Comma-separated valid API keys |
 | `RATE_LIMIT_RPM` | `60` | Max requests per minute per API key |
 | `CACHE_TTL` | `300` | Cache TTL in seconds |
-| `LLM_ADAPTER` | `stub` | `stub` or `http` |
+| `LLM_ADAPTER` | `stub` | `stub` for zero-config local/dev, `http` for a real OpenAI-compatible backend |
 | `LLM_BASE_URL` | `http://localhost:11434` | Base URL for HTTP adapter (OpenAI-compatible) |
 | `LLM_TIMEOUT` | `30` | HTTP timeout in seconds |
-| `LLM_API_KEY` | — | Bearer token for HTTP adapter (optional) |
-| `STUB_FAILURE_RATE` | `0.0` | Fraction of stub calls that raise TimeoutError (0.0–1.0) |
+| `LLM_API_KEY` | — | Optional bearer token for the HTTP adapter |
+| `STUB_FAILURE_RATE` | `0.0` | Stub-only failure rate. `1.0` makes every stub call time out |
 
 Copy `.env.example` to `.env` to override locally.
 
