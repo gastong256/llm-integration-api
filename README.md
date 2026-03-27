@@ -30,3 +30,4 @@ See [`.env.example`](.env.example).
 ---
 
 Full docs, architecture diagram and design notes in [DECISIONS.md](DECISIONS.md).
+TODO: document the Locust example command and the `RATE_LIMIT_RPM` note in the docs pass.

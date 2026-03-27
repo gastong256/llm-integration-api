@@ -68,6 +68,8 @@ I added a small Redis `SETNX` lock in front of the LLM call for cache misses. Fi
 
 Without this, a thundering herd on the same prompt turns one cache miss into a pile of identical upstream calls. The trade-off is a little more Redis traffic on misses plus a short polling loop for followers. I kept it intentionally simple: short lock TTL, bounded wait, and if Redis is down the service just skips collapsing and behaves like before.
 
+TODO: expand load testing notes in the final pass — default `RATE_LIMIT_RPM=60` dominates the result pretty quickly, so the meaningful Locust run only showed up after raising the limit.
+
 ---
 
 ## 3. LLM adapter design
