@@ -122,7 +122,7 @@ curl http://localhost:8000/health
 ```
 
 ```json
-{"status": "ok", "redis": "up", "llm_circuit": "closed", "models_loaded": ["v1", "v2"]}
+{"status": "ok", "redis": "ok", "llm_circuit": "closed", "models_loaded": ["v1", "v2"]}
 ```
 
 **GET /metrics**
@@ -203,3 +203,9 @@ uv run python scripts/train_models.py
 ## Design Notes
 
 Architecture decisions, trade-off rationale, and load scenario documentation are in [DECISIONS.md](DECISIONS.md).
+
+---
+
+## Release
+
+Challenge submitted under tag `v1.0.0` on 2026-03-27.

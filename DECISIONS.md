@@ -165,6 +165,46 @@ The spec example shows `retry_after_s: 45` with a 60s timeout. The only way thos
 
 ---
 
+## 5. Road to production
+
+### Service
+
+- Circuit breaker state to Redis (Lua script for atomic check-and-set across workers).
+- OpenTelemetry tracing replacing the custom request_id middleware — `traceparent` propagation across service boundaries, spans for cache/CB/LLM calls visible in Jaeger or Tempo.
+- LLM Gateway (LiteLLM or similar) between this API and providers. Handles fallback chains, canary routing, cost tracking. The `HttpLLMAdapter` already points at a configurable base URL — it's a config change, not a code change.
+- Horizontal scaling: move the remaining in-process state (CB) to Redis and replicas become fully stateless. Models are small enough to load on every instance.
+- Multi-tenancy: API key → tenant context, per-tenant cache namespace and rate limit tiers.
+- Semantic cache with embeddings (pgvector or Redis VSS) once exact-match hit rates plateau.
+
+### Development workflow
+
+- CI/CD: lint → type check (mypy strict) → test (pytest-cov ≥ 80%) → build image → deploy staging → smoke test → promote.
+- Semantic versioning automated from conventional commits (python-semantic-release).
+- Pre-commit hardened: detect-secrets, commitlint, check-yaml, mypy.
+- Dependency updates via Renovate + security scanning with pip-audit.
+- Container hardening: distroless final stage, Trivy image scanning, read-only filesystem.
+
+### Where this sits
+```
+Client / BFF
+     │
+     ▼
+[RAG / Domain Service]    ← retrieves data, builds prompts, knows the business
+     │
+     ▼
+[**This Inference API**]      ← auth, rate limit, cache, CB, model serving
+     │
+     ▼
+[LLM Gateway]             ← provider routing, fallback, cost tracking
+     │
+     ▼
+[Providers / local models]
+```
+
+Each layer scales independently. This API doesn't know what the domain is — it receives a prompt and returns a response. The business logic lives upstream.
+
+---
+
 ## Development tooling note
 
 I used AI assistants (Copilot and Claude) for some of the mechanical parts — generating the synthetic training dataset, the Locust script skeleton, and early README structure. Mostly on the bonus sections where the interesting problem is design, not typing.
