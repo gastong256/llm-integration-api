@@ -1,4 +1,4 @@
-.PHONY: setup lint format test precommit run up down help
+.PHONY: setup lint format test precommit run up down train help
 .DEFAULT_GOAL := help
 
 help: ## Show this help message
@@ -27,3 +27,6 @@ up: ## Build and start docker containers
 
 down: ## Stop and remove docker containers
 	docker-compose down
+
+train: ## Regenerate models/v1.joblib and models/v2.joblib
+	uv run python scripts/train_models.py
