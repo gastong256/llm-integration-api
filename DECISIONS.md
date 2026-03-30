@@ -230,6 +230,18 @@ I provisioned Prometheus and Grafana from repo files right away. Manual Grafana 
 
 The dashboard JSON is only a scaffold in this first commit and gets filled in later. That was intentional: I wanted the provisioning path locked in before I started polishing the actual panels.
 
+**OpenTelemetry, not Jaeger-specific wiring**
+
+I used OpenTelemetry as the tracing layer and OTLP as the export path. Jaeger is just the backend I happened to plug in for this demo. That keeps the instrumentation portable if I ever want Tempo or Datadog later, and it avoids hard-wiring the app to one tracing vendor.
+
+I considered just leaning on logs and metrics, or wiring straight to Jaeger-specific bits. Didn't love either. OTel is the cleaner boundary.
+
+**Tracing stays opt-in**
+
+I only initialize tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is present. So the base stack still behaves like the original delivery, and the extra tracing path only shows up when the observability overlay is enabled on purpose.
+
+That felt better than making tracing a silent runtime dependency of the app all the time. The demo gets full traces; the base project stays clean.
+
 ---
 
 ## Tooling note

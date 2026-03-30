@@ -1,5 +1,6 @@
 import asyncio
 import json
+import os
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -8,6 +9,14 @@ from pathlib import Path
 import redis.asyncio as aioredis
 import structlog
 from fastapi import FastAPI, Request
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.responses import Response
@@ -30,6 +39,8 @@ from app.services.inference_service import InferenceService
 from app.services.streaming_service import StreamingService
 
 logger = structlog.get_logger()
+otel_provider: TracerProvider | None = None
+otel_instrumented = False
 
 MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 REQUEST_LATENCY = Histogram(
@@ -96,9 +107,40 @@ def _build_adapter(settings: Settings) -> BaseLLMAdapter:
     raise ValueError(f"unsupported llm adapter: {settings.llm_adapter}")
 
 
+def _configure_tracing(app: FastAPI) -> TracerProvider | None:
+    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    if not endpoint:
+        return None
+
+    service_name = os.getenv("OTEL_SERVICE_NAME", "inference-api")
+
+    global otel_provider
+    global otel_instrumented
+
+    if otel_provider is None:
+        otel_provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+        otel_provider.add_span_processor(
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=True))
+        )
+        trace.set_tracer_provider(otel_provider)
+
+    if not otel_instrumented:
+        HTTPXClientInstrumentor().instrument(tracer_provider=otel_provider)
+        RedisInstrumentor().instrument(tracer_provider=otel_provider)
+        otel_instrumented = True
+
+    if not getattr(app.state, "fastapi_tracing_enabled", False):
+        FastAPIInstrumentor.instrument_app(app, tracer_provider=otel_provider)
+        app.state.fastapi_tracing_enabled = True
+
+    app.state.tracing_provider = otel_provider
+    return otel_provider
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+    tracer_provider = _configure_tracing(app)
     circuit_breaker = CircuitBreaker()
     adapter = _build_adapter(settings)
     model_registry = ModelRegistry(MODELS_DIR / "v1.joblib", MODELS_DIR / "v2.joblib")
@@ -124,6 +166,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if isinstance(adapter, HttpLLMAdapter):
         await adapter.aclose()
     await redis_client.aclose()
+    if tracer_provider is not None:
+        tracer_provider.force_flush()
+        tracer_provider.shutdown()
     logger.info("shutdown", message="AI Inference API shutting down")
 
 

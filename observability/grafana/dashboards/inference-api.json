@@ -40,7 +40,7 @@
       },
       "id": 1,
       "options": {
-        "content": "D01 placeholder dashboard scaffold. D05 fills in the real panels.",
+        "content": "Initial dashboard scaffold. The real panels land in a later observability pass.",
         "mode": "markdown"
       },
       "title": "Dashboard Scaffold",
