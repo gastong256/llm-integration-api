@@ -242,6 +242,18 @@ I only initialize tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is present. So the 
 
 That felt better than making tracing a silent runtime dependency of the app all the time. The demo gets full traces; the base project stays clean.
 
+**Manual spans stay close to the real gateway path**
+
+I added a small set of manual spans around the parts I actually care about when explaining a request: cache check, circuit breaker check, LLM call, cache write, and response build. That reads much better in Jaeger than a pile of generic framework spans or every tiny helper call.
+
+I could have traced more, but it would mostly add noise. For this demo I want the trace tree to be understandable in a few seconds.
+
+**Streaming traces focus on lifecycle, not per-token detail**
+
+For SSE I kept the manual tracing at the lifecycle level: stream start, chunk activity, cancellation, and audit dispatch. That's enough to show the happy path and the cancellation path without turning one stream into a noisy trace full of token-level children.
+
+If I ever needed to debug backpressure or token pacing in production, then I'd consider going deeper. Didn't feel worth it here.
+
 ---
 
 ## Tooling note
