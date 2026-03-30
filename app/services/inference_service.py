@@ -38,8 +38,11 @@ class InferenceService:
         if cached is not None:
             latency_ms = (time.perf_counter() - t0) * 1000
             logger.info(
-                "infer_complete", model=req.model,
-                latency_ms=latency_ms, cache_hit=True, status="success",
+                "infer_complete",
+                model=req.model,
+                latency_ms=latency_ms,
+                cache_hit=True,
+                status="success",
             )
             return InferResponse(
                 request_id=request_id,
@@ -78,9 +81,12 @@ class InferenceService:
                 if collapsed is not None:
                     latency_ms = (time.perf_counter() - t0) * 1000
                     logger.info(
-                "infer_complete", model=req.model,
-                latency_ms=latency_ms, cache_hit=True, status="success",
-            )
+                        "infer_complete",
+                        model=req.model,
+                        latency_ms=latency_ms,
+                        cache_hit=True,
+                        status="success",
+                    )
                     return InferResponse(
                         request_id=request_id,
                         output=collapsed["output"],
@@ -96,15 +102,21 @@ class InferenceService:
         except TimeoutError:
             await self._cb.record_failure()
             logger.warning(
-                "infer_complete", model=req.model,
-                latency_ms=(time.perf_counter() - t0) * 1000, cache_hit=False, status="timeout",
+                "infer_complete",
+                model=req.model,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                cache_hit=False,
+                status="timeout",
             )
             raise
         except Exception:
             await self._cb.record_failure()
             logger.warning(
-                "infer_complete", model=req.model,
-                latency_ms=(time.perf_counter() - t0) * 1000, cache_hit=False, status="error",
+                "infer_complete",
+                model=req.model,
+                latency_ms=(time.perf_counter() - t0) * 1000,
+                cache_hit=False,
+                status="error",
             )
             raise
 
@@ -127,8 +139,11 @@ class InferenceService:
 
         latency_ms = (time.perf_counter() - t0) * 1000
         logger.info(
-            "infer_complete", model=req.model,
-            latency_ms=latency_ms, cache_hit=False, status="success",
+            "infer_complete",
+            model=req.model,
+            latency_ms=latency_ms,
+            cache_hit=False,
+            status="success",
         )
         return InferResponse(
             request_id=request_id,

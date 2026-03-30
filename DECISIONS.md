@@ -216,6 +216,22 @@ Each layer scales independently. This API doesn't know what the domain is — it
 
 ---
 
+## 6. Demo branch notes
+
+**Observability as an overlay, not a base-stack mutation**
+
+I kept Jaeger, Prometheus, Grafana, and the OTel collector in `docker-compose.observability.yml` instead of bloating the original `docker-compose.yml`. The challenge delivery path stays exactly where it was, and the demo branch becomes an additive overlay I can turn on when I want the full observability story.
+
+Trade-off is one extra compose file and a slightly more complex startup command. Worth it because it lets me say the original submission is still intact and the demo branch is an evolution, not a rewrite.
+
+**Provisioned dashboards, not click-ops**
+
+I provisioned Prometheus and Grafana from repo files right away. Manual Grafana setup is fragile in demos and easy to forget; repo-backed provisioning is boring in the best way and keeps the stack reproducible.
+
+The dashboard JSON is only a scaffold in this first commit and gets filled in later. That was intentional: I wanted the provisioning path locked in before I started polishing the actual panels.
+
+---
+
 ## Tooling note
 
 I used AI assistants for a few mechanical tasks, mainly around synthetic test data and early documentation scaffolding. The architecture decisions, trade-offs, and final implementation choices are my own.
