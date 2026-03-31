@@ -9,8 +9,10 @@ from app.services.streaming_service import StreamingService
 
 
 class AllowingRateLimiter:
-    async def check(self, client_id: str) -> tuple[bool, float]:
-        return True, 0.0
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return True, 0.0, 59, 60
 
 
 class StreamAdapter(BaseLLMAdapter):

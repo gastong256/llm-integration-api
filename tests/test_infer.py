@@ -29,13 +29,17 @@ class InMemoryCache:
 
 
 class AllowingRateLimiter:
-    async def check(self, client_id: str) -> tuple[bool, float]:
-        return True, 0.0
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return True, 0.0, 59, 60
 
 
 class RejectingRateLimiter:
-    async def check(self, client_id: str) -> tuple[bool, float]:
-        return False, 12.4
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return False, 12.4, 0, 12
 
 
 class UnusedInferenceService:
@@ -69,6 +73,9 @@ async def test_infer_returns_success(
     assert body["usage"]["tokens_out"] == 10
     assert body["latency_ms"] >= 0
     assert body["request_id"]
+    assert response.headers["X-RateLimit-Limit"] == "60"
+    assert response.headers["X-RateLimit-Remaining"] == "59"
+    assert response.headers["X-RateLimit-Reset"] == "60"
 
 
 @pytest.mark.asyncio
@@ -119,6 +126,9 @@ async def test_infer_returns_429_when_rate_limit_is_exceeded(
 
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "12"
+    assert response.headers["X-RateLimit-Limit"] == "60"
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    assert response.headers["X-RateLimit-Reset"] == "12"
     assert response.json() == {"detail": {"error": "rate limit exceeded", "retry_after_s": 12.4}}
 
 

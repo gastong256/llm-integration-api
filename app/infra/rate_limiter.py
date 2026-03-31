@@ -10,7 +10,11 @@ class SlidingWindowRateLimiter:
         self._limit = rpm
         self._window = 60
 
-    async def check(self, client_id: str) -> tuple[bool, float]:
+    @property
+    def limit(self) -> int:
+        return self._limit
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
         now = time.time()
         key = f"rl:{client_id}"
         member = f"{now}:{uuid.uuid4().hex[:8]}"
@@ -25,16 +29,16 @@ class SlidingWindowRateLimiter:
 
         count: int = results[2]
         oldest: list = results[3]
+        reset_after = self._window
+        if oldest:
+            oldest_score: float = oldest[0][1]
+            reset_after = max(0.0, oldest_score + self._window - now)
 
         if count <= self._limit:
-            return True, 0.0
+            remaining = max(0, self._limit - count)
+            return True, 0.0, remaining, int(reset_after)
 
         # Remove the rejected entry — declined requests must not consume quota.
         await self._redis.zrem(key, member)
 
-        retry_after = float(self._window)
-        if oldest:
-            oldest_score: float = oldest[0][1]
-            retry_after = max(0.0, oldest_score + self._window - now)
-
-        return False, retry_after
+        return False, reset_after, 0, int(reset_after)

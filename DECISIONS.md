@@ -51,6 +51,10 @@ Sorted set + `ZREMRANGEBYSCORE` fixes this. Every `check()` call evicts entries 
 
 One deliberate choice: rejected requests don't count toward quota (`ZREM` on denial). A hammering client gets a stable `retry_after_s` based on when real allowed requests expire — not an ever-growing penalty from their own rejected calls.
 
+**Rate-limit headers without changing the error contract**
+
+I added `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` on successful infer responses and relevant `429`s, but kept the current JSON body and `Retry-After` behavior intact. That gives clients something standard-ish to read and makes the limiter easier to demo, without turning this into a bigger API contract rewrite.
+
 **SHA-256 content-addressed cache keys**
 
 Cache key is SHA-256 of `json.dumps({model, input, config}, sort_keys=True)`. The `sort_keys=True` means `{"temp": 0.5, "max": 100}` and `{"max": 100, "temp": 0.5}` are treated as the same request and hit the same entry. Simple string concatenation would miss this and cause redundant LLM calls for identical requests.
