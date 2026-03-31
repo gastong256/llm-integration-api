@@ -2,7 +2,8 @@ from pathlib import Path
 from typing import Any
 
 from app.core.exceptions import ModelVersionNotFound
-from app.models import BaseSentimentWrapper, SentimentV1, SentimentV2
+from app.models import SentimentV1, SentimentV2
+from app.models.sentiment_wrapper import BaseSentimentWrapper
 from sdk.models import BaseModelWrapper, WrapperRegistry
 
 LOCAL_WRAPPERS: tuple[type[BaseSentimentWrapper], ...] = (SentimentV1, SentimentV2)

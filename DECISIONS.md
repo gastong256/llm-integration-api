@@ -138,7 +138,19 @@ I kept that SDK internal on purpose. The demo needs the contract and the migrati
 
 The reusable part is just the generic wrapper contract plus the registry. `app/core/model_registry.py` only wires local wrappers into that registry and resolves them by version. So there isn't a second classify registry hiding in the app layer.
 
-I also made the wrapper schemas part of the runtime path instead of metadata on the side. `ClassifyService` now builds the payload through `wrapper.input_schema` and validates the result through `wrapper.output_schema`, while the old direct predict path stays gone.
+I also made the wrapper schemas part of the runtime path instead of metadata on the side. `ClassifyService` now builds the payload through `wrapper.input_schema`, and the wrapper itself is the authority for returning the right output model. The old direct predict path stays gone.
+
+**Preprocess and postprocess live with the wrapper**
+
+I moved input normalization and output shaping into the local sentiment wrapper layer instead of letting any of that leak into `ClassifyService`. So the service just resolves the wrapper, builds the payload, calls `predict()`, and maps the result to the HTTP response.
+
+For this project I kept the preprocessing simple: string cleanup plus output normalization. That felt more honest than dragging in a heavy dependency just to prove the wrapper can do prep work. The important part is where that logic lives, not making it look fancier than the model actually needs.
+
+If this grew into more structured feature prep or batch-oriented work later, this same model layer is where I'd use tools like pandas. I just didn't want to force that into a one-text request path that doesn't really need it.
+
+I also aligned training and serving around that same cleanup. The training script now applies the same normalization logic conceptually before fitting, even though I kept that code duplicated on purpose instead of importing runtime modules into a one-off model-generation script.
+
+The training data also moved away from the generic placeholder sentiment examples from `v1.0.0` and into small retail-observation phrases. That fits the company context better and still preserves the point of the two model versions: `v1` is unigram-based, `v2` sees bigrams too, so negation cases like `pricing is not accurate` still split them in a useful way.
 
 **Models load in lifespan with `to_thread`**
 
