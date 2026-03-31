@@ -10,10 +10,12 @@ class ClassifyService:
 
     async def classify(self, text: str, model_version: str) -> ClassifyResponse:
         t0 = time.perf_counter()
-        label, confidence = await self._model_registry.predict(model_version, text)
+        wrapper = self._model_registry.get(model_version)
+        payload = wrapper.input_schema.model_validate({"input": text})
+        result = await wrapper.predict(payload)
         return ClassifyResponse(
-            label=label,
-            confidence=confidence,
+            label=result.label,
+            confidence=result.confidence,
             model_version=model_version,
             latency_ms=(time.perf_counter() - t0) * 1000,
         )

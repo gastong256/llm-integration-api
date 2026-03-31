@@ -169,7 +169,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     tracer_provider = _configure_tracing(app)
     circuit_breaker = CircuitBreaker()
     adapter = _build_adapter(settings)
-    model_registry = ModelRegistry(MODELS_DIR / "v1.joblib", MODELS_DIR / "v2.joblib")
+    model_registry = ModelRegistry(MODELS_DIR)
     # joblib.load is blocking, so model loading goes through to_thread inside the registry.
     redis_resources, loaded_versions = await asyncio.gather(
         _build_redis_dependencies(settings),

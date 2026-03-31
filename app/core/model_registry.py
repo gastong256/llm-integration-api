@@ -1,40 +1,28 @@
-import asyncio
 from pathlib import Path
-from typing import Any, cast
-
-import joblib
-from sklearn.pipeline import Pipeline
+from typing import Any
 
 from app.core.exceptions import ModelVersionNotFound
+from app.models import BaseSentimentWrapper, SentimentV1, SentimentV2
+from sdk.models import BaseModelWrapper, WrapperRegistry
+
+LOCAL_WRAPPERS: tuple[type[BaseSentimentWrapper], ...] = (SentimentV1, SentimentV2)
 
 
 class ModelRegistry:
-    def __init__(self, v1_path: Path, v2_path: Path) -> None:
-        self._model_paths: dict[str, Path] = {"v1": v1_path, "v2": v2_path}
-        self._models: dict[str, Pipeline] = {}
+    def __init__(self, models_dir: Path) -> None:
+        self._registry = WrapperRegistry()
+        for wrapper_class in LOCAL_WRAPPERS:
+            self._registry.register(wrapper_class(models_dir / f"{wrapper_class.version}.joblib"))
 
     @property
     def loaded_versions(self) -> list[str]:
-        return list(self._models.keys())
+        return self._registry.loaded_versions
 
     async def load_all(self) -> list[str]:
-        versions = list(self._model_paths.keys())
-        loaded_models = await asyncio.gather(
-            *(asyncio.to_thread(joblib.load, self._model_paths[version]) for version in versions)
-        )
-        self._models = {
-            version: cast(Pipeline, model) for version, model in zip(versions, loaded_models)
-        }
-        return self.loaded_versions
+        return await self._registry.load_all()
 
-    async def predict(self, version: str, text: str) -> tuple[str, float]:
-        model = self._models.get(version)
-        if model is None:
+    def get(self, version: str) -> BaseModelWrapper[Any, Any]:
+        wrapper = self._registry.get(version)
+        if wrapper is None:
             raise ModelVersionNotFound(version)
-        return await asyncio.to_thread(self._predict_sync, model, text)
-
-    def _predict_sync(self, model: Pipeline, text: str) -> tuple[str, float]:
-        probabilities: Any = model.predict_proba([text])[0]
-        label = str(model.predict([text])[0])
-        confidence = float(max(probabilities))
-        return label, confidence
+        return wrapper

@@ -130,9 +130,15 @@ The HTTP adapter returns provider-native keys (`prompt_tokens`, `completion_toke
 
 `STUB_FAILURE_RATE` (0.0–1.0) lets me demo the circuit breaker without a real provider. Set it to 0.8, fire 10 requests, watch the circuit open. Without this, validating CB behavior would require either a flaky real provider or manual code changes. Worth the one extra config field.
 
-**Adapter for LLMs, dict registry for ML models**
+**Adapter for LLMs, small SDK boundary for ML models**
 
-LLM providers differ enough (stub, HTTP, different APIs) to justify an ABC. ML models don't — both versions are sklearn pipelines with the same `predict()` interface. A dict `{version: model}` looked up by `X-Model-Version` is simpler and more honest than wrapping identical objects in adapters. I'd only add an adapter layer for ML models if serving grew to include ONNX, Triton, or remote inference.
+LLM providers still sit behind an ABC because the integration points really differ. For local classify models I moved to a small internal wrapper contract in `sdk/`, with service-specific implementations in `app/models/`. That gives me one stable classify boundary without pretending these wrappers are already a separate published library.
+
+I kept that SDK internal on purpose. The demo needs the contract and the migration path, not the overhead of packaging and versioning another artifact before a second service exists.
+
+The reusable part is just the generic wrapper contract plus the registry. `app/core/model_registry.py` only wires local wrappers into that registry and resolves them by version. So there isn't a second classify registry hiding in the app layer.
+
+I also made the wrapper schemas part of the runtime path instead of metadata on the side. `ClassifyService` now builds the payload through `wrapper.input_schema` and validates the result through `wrapper.output_schema`, while the old direct predict path stays gone.
 
 **Models load in lifespan with `to_thread`**
 
