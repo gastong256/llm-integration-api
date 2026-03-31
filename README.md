@@ -116,7 +116,7 @@ Default `v1`:
 curl -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}'
+  -d '{"input":"pricing is not accurate"}'
 ```
 
 ```json
@@ -130,7 +130,7 @@ curl -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "X-Model-Version: v2" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}'
+  -d '{"input":"pricing is not accurate"}'
 ```
 
 ```json
@@ -219,7 +219,7 @@ Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes 
 
 ## Models
 
-`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. `docker-compose up` works without any extra steps.
+`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. They were trained on small retail-observation sentiment examples so the classify demo stays closer to the company domain. `docker-compose up` works without any extra steps.
 
 To regenerate the models from scratch:
 

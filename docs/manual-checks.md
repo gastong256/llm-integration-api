@@ -194,7 +194,7 @@ Expected:
 curl -s -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}' | python3 -m json.tool
+  -d '{"input":"pricing is not accurate"}' | python3 -m json.tool
 ```
 
 Expected:
@@ -212,7 +212,7 @@ curl -s -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "X-Model-Version: v2" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}' | python3 -m json.tool
+  -d '{"input":"pricing is not accurate"}' | python3 -m json.tool
 ```
 
 Expected:

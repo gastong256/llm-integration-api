@@ -15,10 +15,10 @@ INFER_INPUTS = [
 ]
 
 CLASSIFY_INPUTS = [
-    "payment approved",
-    "request not approved",
-    "shipment not delayed",
-    "service is not working",
+    "pricing looks accurate",
+    "promotion is not effective",
+    "  STOCK   looks healthy!!  ",
+    "store data is not clean",
 ]
 
 

@@ -36,7 +36,7 @@ async def test_model_registry_returns_wrappers() -> None:
     await registry.load_all()
 
     wrapper = registry.get("v1")
-    result = await wrapper.predict(TextInput(input="payment approved"))
+    result = await wrapper.predict(TextInput(input="pricing looks accurate"))
 
     assert isinstance(wrapper, BaseModelWrapper)
     assert wrapper.name == "sentiment"
