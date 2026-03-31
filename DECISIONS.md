@@ -254,6 +254,18 @@ For SSE I kept the manual tracing at the lifecycle level: stream start, chunk ac
 
 If I ever needed to debug backpressure or token pacing in production, then I'd consider going deeper. Didn't feel worth it here.
 
+**Cost stays as estimated cost from post-flight usage**
+
+I kept cost as estimated cost derived from the usage numbers I already get back after a successful LLM call. That's enough for the demo and keeps the whole thing deterministic. I didn't want to drag in provider billing APIs or some external metering product just to say something useful about spend.
+
+So the app now increments token counters and one estimated cost counter from the same normalized usage contract it already returns in `/v1/infer`.
+
+**Input and output tokens stay split**
+
+I kept separate token counters for input and output instead of one flat total. Pricing is usually different on both sides, so merging them would make the cost story weaker and harder to explain.
+
+Could have pushed the cost math into Grafana from raw counters only. I didn't. I'd rather expose both the raw token dimensions and the estimated cost directly from the app.
+
 ---
 
 ## Tooling note

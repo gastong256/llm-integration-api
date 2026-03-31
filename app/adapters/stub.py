@@ -15,14 +15,9 @@ class StubLLMAdapter(BaseLLMAdapter):
         if random.random() < self._failure_rate:
             raise TimeoutError("stub timeout")
         await asyncio.sleep(self._latency_ms / 1000)
-        prompt_tokens = len(input.split())
         return {
             "output": f"[stub] {input}",
-            "usage": {
-                "prompt_tokens": prompt_tokens,
-                "completion_tokens": 10,
-                "total_tokens": prompt_tokens + 10,
-            },
+            "usage": self._build_usage(input),
         }
 
     async def stream(
@@ -36,3 +31,12 @@ class StubLLMAdapter(BaseLLMAdapter):
 
     async def health_check(self) -> bool:
         return self._failure_rate < 1.0
+
+    def _build_usage(self, input: str) -> dict[str, int]:
+        prompt_tokens = len(input.split())
+        completion_tokens = 10
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
+        }

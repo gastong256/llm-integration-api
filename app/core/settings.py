@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     api_keys: str = "test-key-1,test-key-2"
     stub_failure_rate: float = 0.0
     llm_adapter: str = "stub"
+    llm_price_input_per_1k_tokens_usd: float = 0.00015
+    llm_price_output_per_1k_tokens_usd: float = 0.0006
 
     @property
     def api_keys_set(self) -> set[str]:

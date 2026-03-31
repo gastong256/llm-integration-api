@@ -60,6 +60,16 @@ CIRCUIT_OPENS = Counter(
     "llm_api_circuit_open_total",
     "Requests rejected because the circuit breaker was open.",
 )
+TOKENS = Counter(
+    "llm_api_tokens_total",
+    "LLM tokens recorded after successful provider calls.",
+    ["model", "type"],
+)
+COST_ESTIMATED = Counter(
+    "llm_api_cost_estimated_usd_total",
+    "Estimated LLM cost in USD recorded after successful provider calls.",
+    ["model"],
+)
 
 structlog.configure(
     processors=[
@@ -105,6 +115,22 @@ def _build_adapter(settings: Settings) -> BaseLLMAdapter:
     if settings.llm_adapter == "stub":
         return StubLLMAdapter(failure_rate=settings.stub_failure_rate)
     raise ValueError(f"unsupported llm adapter: {settings.llm_adapter}")
+
+
+def _estimate_cost_usd(settings: Settings, usage: dict[str, int]) -> float:
+    return (
+        usage["tokens_in"] / 1000 * settings.llm_price_input_per_1k_tokens_usd
+        + usage["tokens_out"] / 1000 * settings.llm_price_output_per_1k_tokens_usd
+    )
+
+
+def _build_usage_metrics_recorder(settings: Settings) -> Callable[[str, dict[str, int]], None]:
+    def record_usage_metrics(model: str, usage: dict[str, int]) -> None:
+        TOKENS.labels(model=model, type="input").inc(usage["tokens_in"])
+        TOKENS.labels(model=model, type="output").inc(usage["tokens_out"])
+        COST_ESTIMATED.labels(model=model).inc(_estimate_cost_usd(settings, usage))
+
+    return record_usage_metrics
 
 
 def _configure_tracing(app: FastAPI) -> TracerProvider | None:
@@ -157,7 +183,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.models_loaded = loaded_versions
     app.state.model_registry = model_registry
     app.state.classify_service = ClassifyService(model_registry)
-    app.state.inference_service = InferenceService(adapter, cache, circuit_breaker)
+    app.state.inference_service = InferenceService(
+        adapter,
+        cache,
+        circuit_breaker,
+        record_usage_metrics=_build_usage_metrics_recorder(settings),
+    )
     app.state.streaming_service = StreamingService(adapter, circuit_breaker)
 
     logger.info("startup", message="AI Inference API starting up", models_loaded=loaded_versions)

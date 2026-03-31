@@ -27,7 +27,7 @@ class HttpLLMAdapter(BaseLLMAdapter):
         body = response.json()
         return {
             "output": body["choices"][0]["message"]["content"],
-            "usage": body.get("usage", {}),
+            "usage": self._extract_usage(body),
         }
 
     async def stream(
@@ -76,3 +76,14 @@ class HttpLLMAdapter(BaseLLMAdapter):
             payload.update(config)
         payload["stream"] = stream  # always wins over config
         return payload
+
+    def _extract_usage(self, body: dict[str, Any]) -> dict[str, int]:
+        usage = body.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens", 0))
+        completion_tokens = int(usage.get("completion_tokens", 0))
+        total_tokens = int(usage.get("total_tokens", prompt_tokens + completion_tokens))
+        return {
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
+        }

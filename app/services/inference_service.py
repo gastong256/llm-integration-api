@@ -1,4 +1,5 @@
 import time
+from collections.abc import Callable
 from typing import Any
 
 import redis.exceptions
@@ -29,10 +30,12 @@ class InferenceService:
         adapter: BaseLLMAdapter,
         cache: SemanticCache,
         circuit_breaker: CircuitBreaker,
+        record_usage_metrics: Callable[[str, dict[str, int]], None] | None = None,
     ) -> None:
         self._adapter = adapter
         self._cache = cache
         self._cb = circuit_breaker
+        self._record_usage_metrics = record_usage_metrics
         redis_client = getattr(cache, "_redis", None)
         self._collapser = RequestCollapser(redis_client) if redis_client is not None else None
 
@@ -157,6 +160,8 @@ class InferenceService:
                 "tokens_in": raw_usage.get("prompt_tokens", 0),
                 "tokens_out": raw_usage.get("completion_tokens", 0),
             }
+            if self._record_usage_metrics is not None:
+                self._record_usage_metrics(req.model, usage)
             payload = {"output": result["output"], "model": req.model, "usage": usage}
             try:
                 with tracer.start_as_current_span("cache_set") as span:
