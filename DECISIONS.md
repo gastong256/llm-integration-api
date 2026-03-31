@@ -266,6 +266,12 @@ I kept separate token counters for input and output instead of one flat total. P
 
 Could have pushed the cost math into Grafana from raw counters only. I didn't. I'd rather expose both the raw token dimensions and the estimated cost directly from the app.
 
+**The dashboard stays compact and demo-oriented**
+
+I kept the dashboard tight on purpose: request rate, p50/p95, cache, circuit breaker, rate limit, tokens, and estimated cost. That's the story I actually want to tell live. Anything bigger would feel more like an ops dump than a demo.
+
+If this grew into a real production dashboard, I'd split it into a few focused views instead of stuffing everything into one screen.
+
 ---
 
 ## Tooling note
