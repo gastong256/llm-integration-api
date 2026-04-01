@@ -1,7 +1,11 @@
 import time
 
+import structlog
+
 from app.core.model_registry import ModelRegistry
 from app.core.schemas import ClassifyResponse
+
+logger = structlog.get_logger()
 
 
 class ClassifyService:
@@ -13,9 +17,17 @@ class ClassifyService:
         wrapper = self._model_registry.get(model_version)
         payload = wrapper.input_schema.model_validate({"input": text})
         result = await wrapper.predict(payload)
-        return ClassifyResponse(
+        response = ClassifyResponse(
             label=result.label,
             confidence=result.confidence,
             model_version=model_version,
             latency_ms=(time.perf_counter() - t0) * 1000,
         )
+        logger.info(
+            "classify_complete",
+            model_version=model_version,
+            label=response.label,
+            latency_ms=response.latency_ms,
+            status="success",
+        )
+        return response

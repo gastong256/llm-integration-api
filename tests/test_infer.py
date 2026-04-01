@@ -192,7 +192,10 @@ async def test_infer_returns_504_when_provider_times_out(
 
 
 @pytest.mark.asyncio
-async def test_infer_returns_422_on_validation_error(async_client, valid_headers) -> None:
+async def test_infer_returns_422_on_validation_error(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
     response = await async_client.post(
         "/v1/infer",
         headers=valid_headers,
