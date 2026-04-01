@@ -5,6 +5,7 @@ import pytest
 
 from app.adapters.base import BaseLLMAdapter
 from app.core.circuit_breaker import CircuitBreaker
+from app.core.exceptions import UpstreamProviderError
 from app.services.streaming_service import StreamingService
 
 
@@ -27,6 +28,20 @@ class StreamAdapter(BaseLLMAdapter):
     ) -> AsyncGenerator[str, None]:
         for token in self._tokens:
             yield token
+
+    async def health_check(self) -> bool:
+        return True
+
+
+class FailingStreamAdapter(BaseLLMAdapter):
+    async def infer(self, model: str, input: str, config: dict[str, Any] | None) -> dict[str, Any]:
+        raise AssertionError("infer should not be called during stream tests")
+
+    async def stream(
+        self, model: str, input: str, config: dict[str, Any] | None
+    ) -> AsyncGenerator[str, None]:
+        raise UpstreamProviderError(503)
+        yield ""
 
     async def health_check(self) -> bool:
         return True
@@ -82,4 +97,27 @@ async def test_stream_returns_circuit_open_error_event(
     assert response.status_code == 200
     assert '"error": "service unavailable"' in body
     assert '"retry_after_s":' in body
+    assert "[DONE]" not in body
+
+
+@pytest.mark.asyncio
+async def test_stream_returns_upstream_provider_error_event(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    app_instance.state.streaming_service = StreamingService(
+        FailingStreamAdapter(),
+        CircuitBreaker(),
+    )
+
+    async with async_client.stream(
+        "POST",
+        "/v1/infer/stream",
+        headers=valid_headers,
+        json={"model": "gpt-4o-mini", "input": "stream this"},
+    ) as response:
+        body = "".join([chunk async for chunk in response.aiter_text()])
+
+    assert response.status_code == 200
+    assert '"error": "upstream provider error"' in body
     assert "[DONE]" not in body

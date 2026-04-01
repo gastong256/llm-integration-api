@@ -10,6 +10,7 @@ from opentelemetry.trace import Span
 
 from app.adapters.base import BaseLLMAdapter
 from app.core.circuit_breaker import CircuitBreaker
+from app.core.exceptions import UpstreamProviderError
 from app.core.schemas import InferRequest
 
 logger = structlog.get_logger()
@@ -78,6 +79,9 @@ class StreamingService:
             except TimeoutError:
                 await self._cb.record_failure()
                 yield 'data: {"error": "LLM provider timeout"}\n\n'
+            except UpstreamProviderError:
+                await self._cb.record_failure()
+                yield 'data: {"error": "upstream provider error"}\n\n'
             except Exception:
                 await self._cb.record_failure()
                 raise
