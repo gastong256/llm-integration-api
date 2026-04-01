@@ -1,4 +1,3 @@
-import structlog
 from fastapi import Depends, Request, Response
 
 from app.api.middleware.auth import require_api_key
@@ -10,7 +9,6 @@ async def check_rate_limit(
     response: Response,
     client_id: str = Depends(require_api_key),
 ) -> None:
-    structlog.contextvars.bind_contextvars(client_id=client_id)
     allowed, retry_after_s, remaining, reset_s = await request.app.state.rate_limiter.check(
         client_id
     )

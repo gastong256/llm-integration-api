@@ -1,3 +1,4 @@
+import structlog
 from fastapi import Depends, HTTPException
 from fastapi.security import APIKeyHeader
 
@@ -12,4 +13,5 @@ async def require_api_key(
 ) -> str:
     if not x_api_key or x_api_key not in settings.api_keys_set:
         raise HTTPException(status_code=401, detail="invalid or missing API key")
+    structlog.contextvars.bind_contextvars(client_id=x_api_key)
     return x_api_key
