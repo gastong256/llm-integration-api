@@ -206,6 +206,10 @@ I turned off Uvicorn's access log in the local run path and in the container com
 
 I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a lot of churn for very little gain here. Killing the noisy part was enough.
 
+**gRPC is a design artifact here, not a second runtime**
+
+I added a small `.proto` file to show how I'd evolve classify toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
+
 ---
 
 ## 5. Road to production

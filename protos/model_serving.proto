@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package inference.v1;
+
+// HTTP stays at the edge; this is the internal model-serving boundary.
+service ModelServing {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc Classify(ClassifyRequest) returns (ClassifyResponse);
+}
+
+message Metadata {
+  string model_name = 1;
+  string preprocess_version = 2;
+}
+
+message HealthRequest {
+  string request_id = 1;
+  string model_version = 2;
+}
+
+message HealthResponse {
+  bool healthy = 1;
+  string status = 2;
+  string model_name = 3;
+  string model_version = 4;
+  Metadata metadata = 5;
+}
+
+message ClassifyRequest {
+  string request_id = 1;
+  string model_version = 2;
+  string text = 3;
+}
+
+message ClassifyResponse {
+  string request_id = 1;
+  string model_version = 2;
+  string label = 3;
+  float confidence = 4;
+  Metadata metadata = 5;
+}
