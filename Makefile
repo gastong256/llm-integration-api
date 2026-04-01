@@ -20,7 +20,7 @@ precommit: ## Run all pre-commit hooks
 	uv run pre-commit run --all-files
 
 run: ## Run FastAPI app locally with reload
-	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log
 
 up: ## Build and start docker containers
 	docker-compose up --build

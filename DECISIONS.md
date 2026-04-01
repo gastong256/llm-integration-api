@@ -200,6 +200,12 @@ I moved the exception-to-response translation into global handlers and kept the 
 
 I kept the public semantics the same on purpose: same `400/429/503/504` statuses, same `Retry-After` behavior where it already existed, and FastAPI's normal `422` body for validation. So the improvement is mainly in coherence and maintenance, not a contract rewrite.
 
+**Uvicorn access logs are off for the demo path**
+
+I turned off Uvicorn's access log in the local run path and in the container command. The app is already emitting structured JSON events with better context, so the plaintext access lines were mostly noise during the demo.
+
+I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a lot of churn for very little gain here. Killing the noisy part was enough.
+
 ---
 
 ## 5. Road to production
