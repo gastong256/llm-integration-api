@@ -3,6 +3,7 @@ import redis.exceptions
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
+from app.api.exception_handlers import register_exception_handlers
 from app.api.routes.health import router as health_router
 from app.api.routes.infer import router as infer_router
 from app.core.circuit_breaker import CircuitBreaker
@@ -75,6 +76,7 @@ async def test_infer_returns_503_when_rate_limiter_storage_is_down() -> None:
     app = FastAPI()
     app.state.rate_limiter = FailingRateLimiter()
     app.state.inference_service = UnusedService()
+    register_exception_handlers(app)
     app.include_router(infer_router)
 
     async with AsyncClient(

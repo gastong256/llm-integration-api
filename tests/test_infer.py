@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 
 from app.core.circuit_breaker import CircuitBreaker
+from app.core.exceptions import UpstreamProviderError
 from app.services.inference_service import InferenceService
 
 
@@ -45,6 +46,16 @@ class RejectingRateLimiter:
 class UnusedInferenceService:
     async def infer(self, request_id: str, req) -> None:
         raise AssertionError("inference service should not be called")
+
+
+class TimeoutInferenceService:
+    async def infer(self, request_id: str, req) -> None:
+        raise TimeoutError("upstream timed out")
+
+
+class UpstreamErrorInferenceService:
+    async def infer(self, request_id: str, req) -> None:
+        raise UpstreamProviderError(503)
 
 
 @pytest.mark.asyncio
@@ -159,3 +170,53 @@ async def test_infer_returns_503_when_circuit_breaker_is_open(
     assert body["detail"]["error"] == "service unavailable"
     assert body["detail"]["retry_after_s"] > 0
     assert stub_adapter.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_infer_returns_504_when_provider_times_out(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    app_instance.state.inference_service = TimeoutInferenceService()
+
+    response = await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"model": "gpt-4o-mini", "input": "hello world"},
+    )
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "detail": {"error": "LLM provider timeout", "retry_after_s": None}
+    }
+
+
+@pytest.mark.asyncio
+async def test_infer_returns_422_on_validation_error(async_client, valid_headers) -> None:
+    response = await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"input": "hello world"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "model"]
+
+
+@pytest.mark.asyncio
+async def test_infer_returns_502_when_provider_returns_non_timeout_error(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    app_instance.state.inference_service = UpstreamErrorInferenceService()
+
+    response = await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"model": "gpt-4o-mini", "input": "hello world"},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {"error": "upstream provider error", "retry_after_s": None}
+    }

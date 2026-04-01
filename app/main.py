@@ -24,6 +24,7 @@ from starlette.responses import Response
 from app.adapters.base import BaseLLMAdapter
 from app.adapters.http import HttpLLMAdapter
 from app.adapters.stub import StubLLMAdapter
+from app.api.exception_handlers import register_exception_handlers
 from app.api.middleware.request_context import RequestContextMiddleware
 from app.api.routes.classify import router as classify_router
 from app.api.routes.health import router as health_router
@@ -209,6 +210,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+register_exception_handlers(app)
 
 
 @app.middleware("http")

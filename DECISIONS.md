@@ -194,6 +194,12 @@ When the circuit is open, `get_retry_after()` returns `recovery_timeout - (now -
 
 The spec example shows `retry_after_s: 45` with a 60s timeout. The only way those two numbers are consistent is if the circuit opened 15s earlier — the field is remaining time, not total timeout. Dynamic is also just more useful.
 
+**Exception mapping is centralized, not route-by-route**
+
+I moved the exception-to-response translation into global handlers and kept the services raising domain errors. That cleaned up the routes quite a bit and made the error behavior look deliberate instead of a pile of local `try/except` blocks.
+
+I kept the public semantics the same on purpose: same `400/429/503/504` statuses, same `Retry-After` behavior where it already existed, and FastAPI's normal `422` body for validation. So the improvement is mainly in coherence and maintenance, not a contract rewrite.
+
 ---
 
 ## 5. Road to production
