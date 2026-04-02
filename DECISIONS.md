@@ -210,6 +210,12 @@ I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a 
 
 I added a small `.proto` file to show how I'd evolve classify toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
 
+**The demo is scripted, not improvised**
+
+I added a guided demo runner instead of relying on a pile of manual curls. The point is to make the presentation reproducible, lower operator error, and turn the branch into a narrative I can walk through scene by scene.
+
+That does mean carrying one repo-local script whose value is mostly presentation, not product runtime. I'm fine with that trade-off because this branch is explicitly a demo evolution, and the script makes the observability and resilience story much easier to show live.
+
 ---
 
 ## 5. Road to production
