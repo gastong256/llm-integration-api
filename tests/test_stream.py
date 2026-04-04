@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -121,3 +122,57 @@ async def test_stream_returns_upstream_provider_error_event(
     assert response.status_code == 200
     assert '"error": "upstream provider error"' in body
     assert "[DONE]" not in body
+
+
+@pytest.mark.asyncio
+async def test_stream_audit_dispatch_carries_trace_correlation(monkeypatch) -> None:
+    captured: dict[str, Any] = {}
+    tasks: list[asyncio.Task[None]] = []
+
+    async def fake_audit_log(
+        request_id: str,
+        req,
+        tokens: list[str],
+        trace_correlation: dict[str, str],
+    ) -> None:
+        captured["request_id"] = request_id
+        captured["tokens"] = tokens
+        captured["trace_correlation"] = trace_correlation
+        captured["input"] = req.input
+
+    real_create_task = asyncio.create_task
+
+    def fake_create_task(coro):
+        task = real_create_task(coro)
+        tasks.append(task)
+        return task
+
+    class ConnectedRequest:
+        async def is_disconnected(self) -> bool:
+            return False
+
+    monkeypatch.setattr("app.services.streaming_service._audit_log", fake_audit_log)
+    monkeypatch.setattr("app.services.streaming_service.asyncio.create_task", fake_create_task)
+    monkeypatch.setattr(
+        "app.services.streaming_service.get_trace_correlation",
+        lambda: {"trace_id": "a" * 32, "span_id": "b" * 16},
+    )
+
+    service = StreamingService(StreamAdapter(["alpha", "beta"]), CircuitBreaker())
+    body = []
+    async for chunk in service.stream(
+        "req-123",
+        type("Req", (), {"model": "gpt-4o-mini", "input": "stream this", "config": None})(),
+        ConnectedRequest(),
+    ):
+        body.append(chunk)
+
+    assert body[-1] == "data: [DONE]\n\n"
+    await asyncio.gather(*tasks)
+    assert captured["request_id"] == "req-123"
+    assert captured["tokens"] == ["alpha", "beta"]
+    assert captured["input"] == "stream this"
+    assert captured["trace_correlation"] == {
+        "trace_id": "a" * 32,
+        "span_id": "b" * 16,
+    }

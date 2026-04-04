@@ -1,3 +1,4 @@
+import structlog
 from fastapi import APIRouter, Depends, Header, Request
 
 from app.api.middleware.auth import require_api_key
@@ -15,4 +16,5 @@ async def classify(
     model_version: str = Header(default="v1", alias="X-Model-Version"),
 ) -> ClassifyResponse:
     service: ClassifyService = request.app.state.classify_service
-    return await service.classify(req.input, model_version)
+    request_id: str = structlog.contextvars.get_contextvars().get("request_id", "")
+    return await service.classify(req.input, model_version, request_id=request_id)

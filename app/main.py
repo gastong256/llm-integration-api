@@ -201,8 +201,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         await adapter.aclose()
     await redis_client.aclose()
     if tracer_provider is not None:
+        # The instrumented runtime is process-wide in this app, so flushing here is enough.
+        # Shutting the provider down inside lifespan makes repeated same-process lifecycles awkward.
         tracer_provider.force_flush()
-        tracer_provider.shutdown()
     logger.info("shutdown", message="AI Inference API shutting down")
 
 

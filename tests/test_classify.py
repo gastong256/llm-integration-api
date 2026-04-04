@@ -73,6 +73,38 @@ async def test_classify_service_uses_wrapper_schemas() -> None:
 
 
 @pytest.mark.asyncio
+async def test_classify_service_carries_trace_correlation_into_logs(monkeypatch) -> None:
+    events: list[dict[str, object]] = []
+    wrapper = FakeWrapper()
+    service = ClassifyService(FakeRegistry(wrapper))
+
+    monkeypatch.setattr(
+        "app.services.classify_service.get_trace_correlation",
+        lambda: {"trace_id": "a" * 32, "span_id": "b" * 16},
+    )
+    monkeypatch.setattr(
+        "app.services.classify_service.logger.info",
+        lambda event, **kwargs: events.append({"event": event, **kwargs}),
+    )
+
+    response = await service.classify("schema-bound payload", "test", request_id="req-123")
+
+    assert response.model_version == "test"
+    assert events == [
+        {
+            "event": "classify_complete",
+            "model_version": "test",
+            "label": "positive",
+            "latency_ms": response.latency_ms,
+            "input": "schema-bound payload",
+            "status": "success",
+            "trace_id": "a" * 32,
+            "span_id": "b" * 16,
+        }
+    ]
+
+
+@pytest.mark.asyncio
 async def test_classify_returns_v2_result(async_client, valid_headers) -> None:
     v1_response = await async_client.post(
         "/v1/classify",
