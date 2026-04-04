@@ -132,23 +132,23 @@ The HTTP adapter returns provider-native keys (`prompt_tokens`, `completion_toke
 
 **Adapter for LLMs, small SDK boundary for ML models**
 
-LLM providers still sit behind an ABC because the integration points really differ. For local classify models I moved to a small internal wrapper contract in `sdk/`, with service-specific implementations in `app/models/`. That gives me one stable classify boundary without pretending these wrappers are already a separate published library.
+LLM providers still sit behind an ABC because the integration points really differ. Local classify models now sit behind a small internal wrapper contract in `sdk/`, with service-specific implementations in `app/models/`. That gives me one stable classify boundary without pretending these wrappers are already a separate published library.
 
 I kept that SDK internal on purpose. The demo needs the contract and the migration path, not the overhead of packaging and versioning another artifact before a second service exists.
 
 The reusable part is just the generic wrapper contract plus the registry. `app/core/model_registry.py` only wires local wrappers into that registry and resolves them by version. So there isn't a second classify registry hiding in the app layer.
 
-I also made the wrapper schemas part of the runtime path instead of metadata on the side. `ClassifyService` now builds the payload through `wrapper.input_schema`, and the wrapper itself is the authority for returning the right output model. The old direct predict path stays gone.
+The wrapper schemas are part of the runtime path now instead of metadata on the side. `ClassifyService` builds the payload through `wrapper.input_schema`, and the wrapper itself is the authority for returning the right output model. The old direct predict path stays gone.
 
 **Preprocess and postprocess live with the wrapper**
 
-I moved input normalization and output shaping into the local sentiment wrapper layer instead of letting any of that leak into `ClassifyService`. So the service just resolves the wrapper, builds the payload, calls `predict()`, and maps the result to the HTTP response.
+Input normalization and output shaping live in the local sentiment wrapper layer instead of leaking into `ClassifyService`. So the service just resolves the wrapper, builds the payload, calls `predict()`, and maps the result to the HTTP response.
 
 For this project I kept the preprocessing simple: string cleanup plus output normalization. That felt more honest than dragging in a heavy dependency just to prove the wrapper can do prep work. The important part is where that logic lives, not making it look fancier than the model actually needs.
 
 If this grew into more structured feature prep or batch-oriented work later, this same model layer is where I'd use tools like pandas. I just didn't want to force that into a one-text request path that doesn't really need it.
 
-I also aligned training and serving around that same cleanup. The training script now applies the same normalization logic conceptually before fitting, even though I kept that code duplicated on purpose instead of importing runtime modules into a one-off model-generation script.
+Training and serving now line up around that same cleanup. The training script applies the same normalization logic conceptually before fitting, even though I kept that code duplicated on purpose instead of importing runtime modules into a one-off model-generation script.
 
 The training data also moved away from the generic placeholder sentiment examples from `v1.0.0` and into small retail-observation phrases. That fits the company context better and still preserves the point of the two model versions: `v1` is unigram-based, `v2` sees bigrams too, so negation cases like `pricing is not accurate` still split them in a useful way.
 
@@ -202,23 +202,29 @@ I kept the public semantics the same on purpose: same `400/429/503/504` statuses
 
 **Uvicorn access logs are off for the demo path**
 
-I turned off Uvicorn's access log in the local run path and in the container command. The app is already emitting structured JSON events with better context, so the plaintext access lines were mostly noise during the demo.
+Uvicorn access logs are off in the local run path and in the container command. The app is already emitting structured JSON events with better context, so the plaintext access lines were mostly noise during the demo.
 
 I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a lot of churn for very little gain here. Killing the noisy part was enough.
 
 **Logs now carry trace/span correlation when a request is traced**
 
-I added `trace_id` and `span_id` to the existing structured log path by reading the active OpenTelemetry span during log emission. That keeps the implementation local and small, and it means I can match an `infer_complete` log line directly to the trace I'm showing in Jaeger.
+`trace_id` and `span_id` now ride on the existing structured log path by reading the active OpenTelemetry span during log emission. That keeps the implementation local and small, and it means I can match an `infer_complete` log line directly to the trace I'm showing in Jaeger.
 
 I considered leaving logs on `request_id` only. Didn't love it. Once I'm showing both logs and traces in the same demo, they need a shared handle or they feel like two separate stories.
 
+**Safe observability is narrow and intentional**
+
+Bounded prompt/output visibility made more sense than either leaving payloads raw or dropping them entirely. The goal is to keep enough context to explain what happened while avoiding the sloppy "log everything" story.
+
+The masking is intentionally narrow too. I only hide obvious keys like `api_key`, `token`, and `authorization`, and I only do it on the logging-visible payloads. That's enough maturity to talk about without pretending this branch includes a full privacy or compliance subsystem.
+
 **gRPC is a design artifact here, not a second runtime**
 
-I added a small `.proto` file to show how I'd evolve classify toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
+A small `.proto` file is enough to show how classify could evolve toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
 
 **The demo is scripted, not improvised**
 
-I added a guided demo runner instead of relying on a pile of manual curls. The point is to make the presentation reproducible, lower operator error, and turn the branch into a narrative I can walk through scene by scene.
+A guided demo runner made more sense than relying on a pile of manual curls. The point is to make the presentation reproducible, lower operator error, and turn the branch into a narrative I can walk through scene by scene.
 
 That does mean carrying one repo-local script whose value is mostly presentation, not product runtime. I'm fine with that trade-off because this branch is explicitly a demo evolution, and the script makes the observability and resilience story much easier to show live.
 
@@ -276,9 +282,7 @@ Trade-off is one extra compose file and a slightly more complex startup command.
 
 **Provisioned dashboards, not click-ops**
 
-I provisioned Prometheus and Grafana from repo files right away. Manual Grafana setup is fragile in demos and easy to forget; repo-backed provisioning is boring in the best way and keeps the stack reproducible.
-
-The dashboard JSON is only a scaffold in this first commit and gets filled in later. That was intentional: I wanted the provisioning path locked in before I started polishing the actual panels.
+Prometheus and Grafana are provisioned from repo files. Manual Grafana setup is fragile in demos and easy to forget; repo-backed provisioning is boring in the best way and keeps the stack reproducible.
 
 **OpenTelemetry, not Jaeger-specific wiring**
 

@@ -11,6 +11,12 @@ from opentelemetry.trace import Span
 from app.adapters.base import BaseLLMAdapter
 from app.core.circuit_breaker import CircuitBreaker
 from app.core.exceptions import UpstreamProviderError
+from app.core.observability import (
+    get_trace_correlation,
+    log_safe_config,
+    log_safe_input,
+    log_safe_output,
+)
 from app.core.schemas import InferRequest
 
 logger = structlog.get_logger()
@@ -23,13 +29,21 @@ def _set_trace_context(span: Span, model: str, request_id: str) -> None:
         span.set_attribute("request.id", request_id)
 
 
-async def _audit_log(request_id: str, req: InferRequest, tokens: list[str]) -> None:
+async def _audit_log(
+    request_id: str,
+    req: InferRequest,
+    tokens: list[str],
+    trace_correlation: dict[str, str],
+) -> None:
     logger.info(
         "stream_audit",
         request_id=request_id,
         model=req.model,
         token_count=len(tokens),
-        output="".join(tokens),
+        input=log_safe_input(req.input),
+        output=log_safe_output("".join(tokens)),
+        config=log_safe_config(req.config),
+        **trace_correlation,
     )
 
 
@@ -44,6 +58,7 @@ class StreamingService:
         tokens: list[str] = []
         with tracer.start_as_current_span("stream_start") as span:
             _set_trace_context(span, req.model, request_id)
+            trace_correlation = get_trace_correlation()
 
             if await self._cb.is_open():
                 retry_after = int(self._cb.get_retry_after())
@@ -87,4 +102,4 @@ class StreamingService:
                 raise
             finally:
                 span.add_event("stream_audit_dispatch", {"token.count": len(tokens)})
-                asyncio.create_task(_audit_log(request_id, req, tokens))
+                asyncio.create_task(_audit_log(request_id, req, tokens, trace_correlation))

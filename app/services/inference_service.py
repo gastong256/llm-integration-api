@@ -10,6 +10,7 @@ from opentelemetry.trace import Span
 from app.adapters.base import BaseLLMAdapter
 from app.core.circuit_breaker import CircuitBreaker
 from app.core.exceptions import CircuitOpenError
+from app.core.observability import log_safe_config, log_safe_input, log_safe_output
 from app.core.schemas import InferRequest, InferResponse
 from app.infra.cache import SemanticCache
 from app.infra.request_collapsing import RequestCollapser
@@ -41,6 +42,8 @@ class InferenceService:
 
     async def infer(self, request_id: str, req: InferRequest) -> InferResponse:
         t0 = time.perf_counter()
+        safe_input = log_safe_input(req.input)
+        safe_config = log_safe_config(req.config)
         with tracer.start_as_current_span("infer_flow") as flow_span:
             _set_trace_context(flow_span, req.model, request_id)
 
@@ -61,6 +64,9 @@ class InferenceService:
                     latency_ms=latency_ms,
                     cache_hit=True,
                     status="success",
+                    input=safe_input,
+                    output=log_safe_output(cached["output"]),
+                    config=safe_config,
                 )
                 with tracer.start_as_current_span("response_build") as span:
                     _set_trace_context(span, req.model, request_id)
@@ -112,6 +118,9 @@ class InferenceService:
                             latency_ms=latency_ms,
                             cache_hit=True,
                             status="success",
+                            input=safe_input,
+                            output=log_safe_output(collapsed["output"]),
+                            config=safe_config,
                         )
                         with tracer.start_as_current_span("response_build") as span:
                             _set_trace_context(span, req.model, request_id)
@@ -140,6 +149,8 @@ class InferenceService:
                     latency_ms=(time.perf_counter() - t0) * 1000,
                     cache_hit=False,
                     status="timeout",
+                    input=safe_input,
+                    config=safe_config,
                 )
                 raise
             except Exception:
@@ -150,6 +161,8 @@ class InferenceService:
                     latency_ms=(time.perf_counter() - t0) * 1000,
                     cache_hit=False,
                     status="error",
+                    input=safe_input,
+                    config=safe_config,
                 )
                 raise
 
@@ -184,6 +197,9 @@ class InferenceService:
                 latency_ms=latency_ms,
                 cache_hit=False,
                 status="success",
+                input=safe_input,
+                output=log_safe_output(result["output"]),
+                config=safe_config,
             )
             with tracer.start_as_current_span("response_build") as span:
                 _set_trace_context(span, req.model, request_id)
