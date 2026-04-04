@@ -32,6 +32,7 @@ from app.api.routes.infer import router as infer_router
 from app.api.routes.stream import router as stream_router
 from app.core.circuit_breaker import CircuitBreaker
 from app.core.model_registry import ModelRegistry
+from app.core.observability import add_trace_correlation
 from app.core.settings import Settings, get_settings
 from app.infra.cache import SemanticCache
 from app.infra.rate_limiter import SlidingWindowRateLimiter
@@ -75,6 +76,7 @@ COST_ESTIMATED = Counter(
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
+        add_trace_correlation,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),

@@ -206,6 +206,12 @@ I turned off Uvicorn's access log in the local run path and in the container com
 
 I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a lot of churn for very little gain here. Killing the noisy part was enough.
 
+**Logs now carry trace/span correlation when a request is traced**
+
+I added `trace_id` and `span_id` to the existing structured log path by reading the active OpenTelemetry span during log emission. That keeps the implementation local and small, and it means I can match an `infer_complete` log line directly to the trace I'm showing in Jaeger.
+
+I considered leaving logs on `request_id` only. Didn't love it. Once I'm showing both logs and traces in the same demo, they need a shared handle or they feel like two separate stories.
+
 **gRPC is a design artifact here, not a second runtime**
 
 I added a small `.proto` file to show how I'd evolve classify toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
