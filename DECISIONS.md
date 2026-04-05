@@ -95,19 +95,6 @@ No custom buffer needed. When a client reads slowly, the kernel TCP send buffer 
 
 The request timeout (default 30s via `LLM_TIMEOUT`) is the final safety net. If the client stalls long enough to exceed it, the generator catches the cancellation and closes the upstream LLM connection. No orphaned streams, no memory growth.
 
-### Load testing observations
-
-Measured against the full app with `RATE_LIMIT_RPM=10000`. The point latencies below come from the API's own `latency_ms` field, so they reflect app-side processing time rather than full client-observed RTT.
-
-| Scenario | p50 | p95 | Notes |
-| --- | ---: | ---: | --- |
-| `/v1/infer` cache miss | ~152 ms | — | 40 samples |
-| `/v1/infer` cache hit | ~0.2 ms | — | 40 samples |
-| `/v1/classify` | ~1 ms | — | 40 samples |
-| Locust, 8 users | ~7 ms | ~11 ms | mixed workload, ~166 req/s, 0 failures |
-
-Main signal is the gap between infer cache miss and cache hit. On the mixed Locust workload, the service sustained ~166 req/s with 0 failures at 8 users. At 100 users it still returned 0 failures, but latency degraded sharply instead of holding flat: aggregate p50 was ~85 ms, aggregate p95 was ~1000 ms, and `/v1/infer` median was ~1100 ms. So the useful read is "kept serving under pressure", not "scales cleanly to 100 users".
-
 ---
 
 ## 4. LLM adapter design
@@ -224,18 +211,6 @@ A small `.proto` file is enough to show how classify could evolve toward an inte
 
 The important part for this branch is the boundary, not the transport runtime. So HTTP still owns the gateway path, and gRPC stays as a design artifact for the next hop inward.
 
-**The demo is scripted, not improvised**
-
-A guided demo runner made more sense than relying on a pile of manual curls. The point is to make the presentation reproducible, lower operator error, and turn the branch into a narrative I can walk through scene by scene.
-
-That does mean carrying one repo-local script whose value is mostly presentation, not product runtime. I'm fine with that trade-off because this branch is explicitly a demo evolution, and the script makes the observability and resilience story much easier to show live.
-
-**Demo-specific guidance lives in `docs/demo.md`**
-
-I kept the main README usable as a project entrypoint and pushed the scene order, live transitions, and observability talking points into a separate demo guide. That felt cleaner than turning the README into presenter notes.
-
----
-
 ## 5. Road to production
 
 If I took this further, these are the next steps I see.
@@ -310,7 +285,7 @@ I added a small set of manual spans around the parts I actually care about when 
 
 I could have traced more, but it would mostly add noise. For this demo I want the trace tree to be understandable in a few seconds.
 
-I did factor the repeated tracing boilerplate into a tiny helper later on. But I kept `start_as_current_span(...)` in the services so the business flow still reads directly from the request path instead of disappearing behind decorators or middleware.
+I did factor the repeated tracing boilerplate into a tiny helper. But I kept `start_as_current_span(...)` in the services so the business flow still reads directly from the request path instead of disappearing behind decorators or middleware.
 
 **Streaming traces focus on lifecycle, not per-token detail**
 
@@ -337,7 +312,3 @@ I kept the dashboard tight on purpose: request rate, p50/p95, cache, circuit bre
 If this grew into a real production dashboard, I'd split it into a few focused views instead of stuffing everything into one screen.
 
 ---
-
-## Tooling note
-
-I used AI assistants for a few mechanical tasks, mainly around synthetic test data and early documentation scaffolding. The architecture decisions, trade-offs, and final implementation choices are my own.

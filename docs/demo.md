@@ -4,6 +4,8 @@ This is the live presentation flow for the demo branch.
 
 The main idea is simple: keep the original gateway path intact, then layer observability and the model-serving evolution story on top of it.
 
+I kept this guide separate from the main README on purpose. The README still works better as the project entrypoint; the scene order, live transitions, and observability talking points read more naturally here.
+
 ## Start the stack
 
 ```bash
@@ -23,6 +25,10 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml logs --
 ```
 
 ## Run the demo runner
+
+The runner is scripted on purpose. I'd rather have one reproducible walkthrough than depend on a pile of manual curls and browser tab switching during the live presentation.
+
+That does mean carrying one repo-local script whose value is mostly presentation, not product runtime. I'm fine with that trade-off because this branch is explicitly a demo evolution, and the script makes the observability and resilience story much easier to show live.
 
 Guided mode:
 
