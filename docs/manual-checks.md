@@ -11,7 +11,7 @@ For the observability overlay and the guided live presentation flow, use [docs/d
 From the repository root:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 Leave the stack running and execute the checks below against `http://localhost:8000`.
@@ -242,8 +242,8 @@ Expected:
 Restart the stack with forced stub failures:
 
 ```bash
-docker-compose down
-STUB_FAILURE_RATE=1.0 docker-compose up --build
+docker compose down
+STUB_FAILURE_RATE=1.0 docker compose up --build
 ```
 
 Then:
@@ -287,8 +287,8 @@ Expected:
 Reset to normal after this check:
 
 ```bash
-docker-compose down
-docker-compose up --build
+docker compose down
+docker compose up --build
 ```
 
 ---
@@ -318,7 +318,7 @@ Expected:
 Stop Redis while the app is still running:
 
 ```bash
-docker-compose stop redis
+docker compose stop redis
 ```
 
 ### Infer should fail gracefully
@@ -360,7 +360,7 @@ Expected:
 Restart Redis:
 
 ```bash
-docker-compose start redis
+docker compose start redis
 ```
 
 Expected:

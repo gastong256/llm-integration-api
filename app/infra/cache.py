@@ -10,7 +10,11 @@ class SemanticCache:
         self._redis = redis_client
         self._ttl = ttl
 
-    def _make_key(self, model: str, input: str, config: dict[str, Any] | None) -> str:
+    @property
+    def redis(self) -> aioredis.Redis:
+        return self._redis
+
+    def make_key(self, model: str, input: str, config: dict[str, Any] | None) -> str:
         payload = json.dumps({"model": model, "input": input, "config": config}, sort_keys=True)
         digest = hashlib.sha256(payload.encode()).hexdigest()
         return f"cache:{digest}"
@@ -18,10 +22,10 @@ class SemanticCache:
     async def get(
         self, model: str, input: str, config: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        value = await self._redis.get(self._make_key(model, input, config))
+        value = await self._redis.get(self.make_key(model, input, config))
         return json.loads(value) if value is not None else None
 
     async def set(
         self, model: str, input: str, config: dict[str, Any] | None, value: dict[str, Any]
     ) -> None:
-        await self._redis.setex(self._make_key(model, input, config), self._ttl, json.dumps(value))
+        await self._redis.setex(self.make_key(model, input, config), self._ttl, json.dumps(value))

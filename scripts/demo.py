@@ -14,6 +14,7 @@ import httpx
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_COMPOSE_FILES = ("docker-compose.yml", "docker-compose.observability.yml")
+APP_NAME = "llm-integration-api"
 INFER_MODEL = "gpt-4o-mini"
 ANSI_RESET = "\033[0m"
 ANSI_BOLD = "\033[1m"
@@ -41,7 +42,7 @@ class DemoRunner:
         self.client = httpx.Client(timeout=35.0)
         self.demo_id = str(int(time.time()))
         self.scene_map = {
-            0: ("llm-integration-api", self.scene_cover),
+            0: (APP_NAME, self.scene_cover),
             1: ("Architecture", self.scene_context),
             2: ("Infer happy path", self.scene_infer_happy_path),
             3: ("Cache hit", self.scene_cache_hit),
@@ -60,6 +61,9 @@ class DemoRunner:
             self._banner(number, title)
             handler()
             self._pause(self._next_hint(number))
+
+    def close(self) -> None:
+        self.client.close()
 
     def scene_cover(self) -> None:
         print(f"{ANSI_CYAN}{ANSI_BOLD}LLM integration gateway demo{ANSI_RESET}")
@@ -292,7 +296,7 @@ class DemoRunner:
         if number == 0:
             print(f"{ANSI_BOLD}{title}{ANSI_RESET}")
         else:
-            print("llm-integration-api")
+            print(APP_NAME)
             print(f"Scene {number}: {title}")
         print("=" * 78)
 
@@ -446,11 +450,14 @@ def parse_args() -> DemoConfig:
 
 
 def main() -> int:
+    runner = DemoRunner(parse_args())
     try:
-        DemoRunner(parse_args()).run()
+        runner.run()
     except (httpx.HTTPError, RuntimeError, subprocess.CalledProcessError, TimeoutError) as exc:
         print(f"Demo failed: {exc}", file=sys.stderr)
         return 1
+    finally:
+        runner.close()
     return 0
 
 

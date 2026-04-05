@@ -37,7 +37,7 @@ class InferenceService:
         self._cache = cache
         self._cb = circuit_breaker
         self._record_usage_metrics = record_usage_metrics
-        redis_client = getattr(cache, "_redis", None)
+        redis_client = getattr(cache, "redis", None)
         self._collapser = RequestCollapser(redis_client) if redis_client is not None else None
 
     async def infer(self, request_id: str, req: InferRequest) -> InferResponse:
@@ -58,25 +58,24 @@ class InferenceService:
                 span.set_attribute("cache.hit", cached is not None)
             if cached is not None:
                 latency_ms = (time.perf_counter() - t0) * 1000
-                logger.info(
-                    "infer_complete",
-                    model=req.model,
+                self._log_infer_complete(
+                    req.model,
                     latency_ms=latency_ms,
                     cache_hit=True,
                     status="success",
-                    input=safe_input,
-                    output=log_safe_output(cached["output"]),
-                    config=safe_config,
+                    safe_input=safe_input,
+                    safe_config=safe_config,
+                    output=cached["output"],
                 )
                 with tracer.start_as_current_span("response_build") as span:
                     _set_trace_context(span, req.model, request_id)
                     span.set_attribute("cache.hit", True)
-                    response = InferResponse(
-                        request_id=request_id,
-                        output=cached["output"],
-                        model=cached["model"],
-                        usage=cached["usage"],
-                        latency_ms=latency_ms,
+                    response = self._build_response(
+                        request_id,
+                        cached["output"],
+                        cached["model"],
+                        cached["usage"],
+                        latency_ms,
                         cache_hit=True,
                     )
                 return response
@@ -93,7 +92,7 @@ class InferenceService:
             cache_key = ""
             has_lock = False
             if self._collapser is not None:
-                cache_key = self._cache._make_key(req.model, req.input, req.config)
+                cache_key = self._cache.make_key(req.model, req.input, req.config)
                 try:
                     has_lock = await self._collapser.try_acquire(cache_key)
                 except redis.exceptions.ConnectionError:
@@ -112,25 +111,24 @@ class InferenceService:
                         collapsed = None
                     if collapsed is not None:
                         latency_ms = (time.perf_counter() - t0) * 1000
-                        logger.info(
-                            "infer_complete",
-                            model=req.model,
+                        self._log_infer_complete(
+                            req.model,
                             latency_ms=latency_ms,
                             cache_hit=True,
                             status="success",
-                            input=safe_input,
-                            output=log_safe_output(collapsed["output"]),
-                            config=safe_config,
+                            safe_input=safe_input,
+                            safe_config=safe_config,
+                            output=collapsed["output"],
                         )
                         with tracer.start_as_current_span("response_build") as span:
                             _set_trace_context(span, req.model, request_id)
                             span.set_attribute("cache.hit", True)
-                            response = InferResponse(
-                                request_id=request_id,
-                                output=collapsed["output"],
-                                model=collapsed["model"],
-                                usage=collapsed["usage"],
-                                latency_ms=latency_ms,
+                            response = self._build_response(
+                                request_id,
+                                collapsed["output"],
+                                collapsed["model"],
+                                collapsed["usage"],
+                                latency_ms,
                                 cache_hit=True,
                             )
                         return response
@@ -143,26 +141,26 @@ class InferenceService:
                     )
             except TimeoutError:
                 await self._cb.record_failure()
-                logger.warning(
-                    "infer_complete",
-                    model=req.model,
+                self._log_infer_complete(
+                    req.model,
                     latency_ms=(time.perf_counter() - t0) * 1000,
                     cache_hit=False,
                     status="timeout",
-                    input=safe_input,
-                    config=safe_config,
+                    safe_input=safe_input,
+                    safe_config=safe_config,
+                    level="warning",
                 )
                 raise
             except Exception:
                 await self._cb.record_failure()
-                logger.warning(
-                    "infer_complete",
-                    model=req.model,
+                self._log_infer_complete(
+                    req.model,
                     latency_ms=(time.perf_counter() - t0) * 1000,
                     cache_hit=False,
                     status="error",
-                    input=safe_input,
-                    config=safe_config,
+                    safe_input=safe_input,
+                    safe_config=safe_config,
+                    level="warning",
                 )
                 raise
 
@@ -191,25 +189,68 @@ class InferenceService:
                         logger.warning("redis_unavailable", operation="request_collapse_release")
 
             latency_ms = (time.perf_counter() - t0) * 1000
-            logger.info(
-                "infer_complete",
-                model=req.model,
+            self._log_infer_complete(
+                req.model,
                 latency_ms=latency_ms,
                 cache_hit=False,
                 status="success",
-                input=safe_input,
-                output=log_safe_output(result["output"]),
-                config=safe_config,
+                safe_input=safe_input,
+                safe_config=safe_config,
+                output=result["output"],
             )
             with tracer.start_as_current_span("response_build") as span:
                 _set_trace_context(span, req.model, request_id)
                 span.set_attribute("cache.hit", False)
-                response = InferResponse(
-                    request_id=request_id,
-                    output=result["output"],
-                    model=req.model,
-                    usage=usage,
-                    latency_ms=latency_ms,
+                response = self._build_response(
+                    request_id,
+                    result["output"],
+                    req.model,
+                    usage,
+                    latency_ms,
                     cache_hit=False,
                 )
             return response
+
+    def _build_response(
+        self,
+        request_id: str,
+        output: str,
+        model: str,
+        usage: dict[str, int],
+        latency_ms: float,
+        *,
+        cache_hit: bool,
+    ) -> InferResponse:
+        return InferResponse(
+            request_id=request_id,
+            output=output,
+            model=model,
+            usage=usage,
+            latency_ms=latency_ms,
+            cache_hit=cache_hit,
+        )
+
+    def _log_infer_complete(
+        self,
+        model: str,
+        *,
+        latency_ms: float,
+        cache_hit: bool,
+        status: str,
+        safe_input: str,
+        safe_config: dict[str, Any] | None,
+        output: str | None = None,
+        level: str = "info",
+    ) -> None:
+        log = getattr(logger, level)
+        payload: dict[str, Any] = {
+            "model": model,
+            "latency_ms": latency_ms,
+            "cache_hit": cache_hit,
+            "status": status,
+            "input": safe_input,
+            "config": safe_config,
+        }
+        if output is not None:
+            payload["output"] = log_safe_output(output)
+        log("infer_complete", **payload)

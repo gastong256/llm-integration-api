@@ -134,7 +134,7 @@ The HTTP adapter returns provider-native keys (`prompt_tokens`, `completion_toke
 
 LLM providers still sit behind an ABC because the integration points really differ. Local classify models now sit behind a small internal wrapper contract in `sdk/`, with service-specific implementations in `app/models/`. That gives me one stable classify boundary without pretending these wrappers are already a separate published library.
 
-I kept that SDK internal on purpose. The demo needs the contract and the migration path, not the overhead of packaging and versioning another artifact before a second service exists.
+I kept that SDK internal on purpose. I wanted a real boundary and a real migration path, not the overhead of packaging and versioning another artifact before a second service exists.
 
 The reusable part is just the generic wrapper contract plus the registry. `app/core/model_registry.py` only wires local wrappers into that registry and resolves them by version. So there isn't a second classify registry hiding in the app layer.
 
@@ -206,11 +206,11 @@ Uvicorn access logs are off in the local run path and in the container command. 
 
 I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a lot of churn for very little gain here. Killing the noisy part was enough.
 
-**Logs now carry trace/span correlation when a request is traced**
+**Logs carry request and trace correlation together**
 
-`trace_id` and `span_id` now ride on the existing structured log path by reading the active OpenTelemetry span during log emission. That keeps the implementation local and small, and it means I can match an `infer_complete` log line directly to the trace I'm showing in Jaeger.
+`request_id` was already useful inside the app. Once I started showing traces too, that wasn't enough on its own. Logs now carry `request_id` plus `trace_id` and `span_id` when a request is traced, using the active OpenTelemetry span at log emission time.
 
-I considered leaving logs on `request_id` only. Didn't love it. Once I'm showing both logs and traces in the same demo, they need a shared handle or they feel like two separate stories.
+That keeps the implementation local and small, and it gives logs and Jaeger a shared handle instead of two parallel observability stories.
 
 **Safe observability is narrow and intentional**
 
@@ -221,6 +221,8 @@ The masking is intentionally narrow too. I only hide obvious keys like `api_key`
 **gRPC is a design artifact here, not a second runtime**
 
 A small `.proto` file is enough to show how classify could evolve toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
+
+The important part for this branch is the boundary, not the transport runtime. So HTTP still owns the gateway path, and gRPC stays as a design artifact for the next hop inward.
 
 **The demo is scripted, not improvised**
 
@@ -286,7 +288,7 @@ Trade-off is one extra compose file and a slightly more complex startup command.
 
 **Provisioned dashboards, not click-ops**
 
-Prometheus and Grafana are provisioned from repo files. Manual Grafana setup is fragile in demos and easy to forget; repo-backed provisioning is boring in the best way and keeps the stack reproducible.
+Prometheus and Grafana are provisioned from repo files. Manual setup is fragile and easy to forget; repo-backed provisioning is boring in the best way and keeps the stack reproducible.
 
 **OpenTelemetry, not Jaeger-specific wiring**
 

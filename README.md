@@ -9,7 +9,7 @@ LLM proxy with Redis-backed caching, sliding-window rate limiting, and a circuit
 Docker quick start does not require `make setup`.
 
 ```bash
-make up          # docker-compose up --build (app + redis)
+make up          # docker compose up --build (app + redis)
 curl http://localhost:8000/health
 ```
 
@@ -281,7 +281,7 @@ Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes 
 
 ## Models
 
-`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. They were trained on small retail-observation sentiment examples so the classify demo stays closer to the company domain. `docker-compose up` works without any extra steps.
+`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. They were trained on small retail-observation sentiment examples so the classify demo stays closer to the company domain. `docker compose up` works without any extra steps.
 
 To regenerate the models from scratch:
 
