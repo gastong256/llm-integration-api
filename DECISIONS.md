@@ -228,6 +228,10 @@ A guided demo runner made more sense than relying on a pile of manual curls. The
 
 That does mean carrying one repo-local script whose value is mostly presentation, not product runtime. I'm fine with that trade-off because this branch is explicitly a demo evolution, and the script makes the observability and resilience story much easier to show live.
 
+**Demo-specific guidance lives in `docs/demo.md`**
+
+I kept the main README usable as a project entrypoint and pushed the scene order, live transitions, and observability talking points into a separate demo guide. That felt cleaner than turning the README into presenter notes.
+
 ---
 
 ## 5. Road to production

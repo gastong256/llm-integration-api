@@ -4,6 +4,8 @@ This document provides a focused manual validation flow for the critical challen
 
 It is intentionally smaller than a full QA checklist. The goal is to verify the main R1, R2, and R3 flows, plus the most important resilience behaviors: cache hits, rate limiting, circuit breaker opening, streaming cancellation, and degraded Redis mode.
 
+For the observability overlay and the guided live presentation flow, use [docs/demo.md](demo.md).
+
 ## Prerequisites
 
 From the repository root:

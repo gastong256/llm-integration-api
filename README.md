@@ -164,6 +164,68 @@ For a focused manual validation flow covering the critical challenge behaviors â
 
 ---
 
+## Demo branch
+
+This branch also carries an observability overlay and a guided demo runner on top of the original delivery path.
+
+### Observability overlay
+
+Bring the full demo stack up with:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d
+```
+
+Useful URLs:
+- app: `http://localhost:8000`
+- Jaeger: `http://localhost:16686`
+- Grafana: `http://localhost:3000`
+- Prometheus: `http://localhost:9090`
+
+Tracing stays opt-in. The base stack still works on its own; the overlay just turns on the extra observability path.
+
+### Guided demo runner
+
+The live demo flow is scripted in `scripts/demo.py`.
+
+```bash
+./.venv/bin/python scripts/demo.py
+```
+
+Helpful variants:
+
+```bash
+./.venv/bin/python scripts/demo.py --auto
+./.venv/bin/python scripts/demo.py --auto --scene 3
+```
+
+The full scene order and the live presentation notes are in [docs/demo.md](docs/demo.md).
+
+### Internal model boundary
+
+`/v1/classify` now runs through a small internal wrapper contract in `sdk/`, with the concrete wrappers kept in `app/models/`. That keeps the SDK real but still repo-local, and it means the running app uses the same boundary the code is describing.
+
+### Estimated cost metrics
+
+The app now emits:
+- input token counters
+- output token counters
+- `estimated cost` counters
+
+Cost is intentionally derived from post-flight `usage` plus configured pricing. It's useful operationally, but it's not pretending to be billing truth.
+
+### Logs and traces
+
+Structured logs still carry `request_id`, and traced requests now also carry `trace_id` and `span_id`. That gives the demo one shared handle between app logs and Jaeger instead of two separate stories.
+
+Prompt and output previews in demo-visible logs are bounded on purpose, and obvious secret-bearing keys like `api_key`, `token`, and `authorization` are masked in log-visible payloads.
+
+### gRPC evolution artifact
+
+There is no runnable gRPC server in this branch. The `.proto` file in `protos/model_serving.proto` is there as a design artifact to show how I'd evolve the gateway toward an internal HTTP edge -> gRPC model-serving split later.
+
+---
+
 ## Configuration
 
 All settings are env vars with defaults that work out of the box for local runs. Docker Compose injects its own container-specific `REDIS_URL`.
