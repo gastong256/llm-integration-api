@@ -182,7 +182,9 @@ Useful URLs:
 - Grafana: `http://localhost:3000`
 - Prometheus: `http://localhost:9090`
 
-Tracing stays opt-in. The base stack still works on its own; the overlay just turns on the extra observability path.
+Tracing stays opt-in. The base stack still works on its own; the overlay just turns on the extra observability path by setting:
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`
+- `OTEL_SERVICE_NAME=inference-api`
 
 ### Guided demo runner
 
@@ -241,8 +243,30 @@ All settings are env vars with defaults that work out of the box for local runs.
 | `LLM_TIMEOUT` | `30` | HTTP timeout in seconds |
 | `LLM_API_KEY` | — | Optional bearer token for the HTTP adapter |
 | `STUB_FAILURE_RATE` | `0.0` | Stub-only failure rate. `1.0` makes every stub call time out |
+| `LLM_PRICE_INPUT_PER_1K_TOKENS_USD` | `0.00015` | Estimated-cost input token pricing |
+| `LLM_PRICE_OUTPUT_PER_1K_TOKENS_USD` | `0.0006` | Estimated-cost output token pricing |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Optional OTLP gRPC endpoint. Needed only for the observability overlay |
+| `OTEL_SERVICE_NAME` | `inference-api` | Service name reported to OpenTelemetry when tracing is enabled |
 
 Copy `.env.example` to `.env` to override locally.
+
+Load-test-only env vars stay local to `scripts/locustfile.py`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOCUST_API_KEY` | `test-key-1` | API key used by the Locust users |
+| `LOCUST_INFER_MODEL` | `gpt-4o-mini` | Model sent to `/v1/infer` during load runs |
+| `LOCUST_CLASSIFY_VERSION` | `v1` | `X-Model-Version` sent to `/v1/classify` during load runs |
+
+Demo-runner-only env vars stay local to `scripts/demo.py`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEMO_BASE_URL` | `http://localhost:8000` | Base URL used by the guided demo runner |
+| `DEMO_JAEGER_URL` | `http://localhost:16686` | Jaeger URL used by the guided demo runner |
+| `DEMO_GRAFANA_URL` | `http://localhost:3000` | Grafana URL used by the guided demo runner |
+| `DEMO_API_KEY` | `test-key-1` | Primary API key used during the guided demo |
+| `DEMO_RATE_LIMIT_KEY` | `test-key-2` | Separate API key used in the rate-limit scene |
 
 ---
 
@@ -276,6 +300,11 @@ RATE_LIMIT_RPM=10000 make run
 ```
 
 Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. In production, use dedicated load-test API keys with relaxed limits rather than touching the global default.
+
+Supported Locust overrides:
+- `LOCUST_API_KEY`
+- `LOCUST_INFER_MODEL`
+- `LOCUST_CLASSIFY_VERSION`
 
 ---
 

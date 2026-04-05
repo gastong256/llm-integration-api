@@ -1,6 +1,5 @@
 import asyncio
 import json
-import os
 import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
@@ -136,12 +135,12 @@ def _build_usage_metrics_recorder(settings: Settings) -> Callable[[str, dict[str
     return record_usage_metrics
 
 
-def _configure_tracing(app: FastAPI) -> TracerProvider | None:
-    endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+def _configure_tracing(settings: Settings, app: FastAPI) -> TracerProvider | None:
+    endpoint = settings.otel_exporter_otlp_endpoint
     if not endpoint:
         return None
 
-    service_name = os.getenv("OTEL_SERVICE_NAME", "inference-api")
+    service_name = settings.otel_service_name
 
     global otel_provider
     global otel_instrumented
@@ -169,7 +168,7 @@ def _configure_tracing(app: FastAPI) -> TracerProvider | None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
-    tracer_provider = _configure_tracing(app)
+    tracer_provider = _configure_tracing(settings, app)
     circuit_breaker = CircuitBreaker()
     adapter = _build_adapter(settings)
     model_registry = ModelRegistry(MODELS_DIR)

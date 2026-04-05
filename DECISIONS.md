@@ -302,6 +302,8 @@ I only initialize tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is present. So the 
 
 That felt better than making tracing a silent runtime dependency of the app all the time. The demo gets full traces; the base project stays clean.
 
+I also pulled the tracing env vars into the main settings surface once the branch started carrying more config. The app runtime now reads one settings object for both normal behavior and the optional tracing path, while Locust-specific overrides stay local to the load script because they aren't app config.
+
 **Manual spans stay close to the real gateway path**
 
 I added a small set of manual spans around the parts I actually care about when explaining a request: cache check, circuit breaker check, LLM call, cache write, and response build. That reads much better in Jaeger than a pile of generic framework spans or every tiny helper call.

@@ -3,9 +3,13 @@ import random
 
 from locust import HttpUser, constant_pacing, task
 
-API_KEY = os.getenv("LOCUST_API_KEY", "test-key-1")
-INFER_MODEL = os.getenv("LOCUST_INFER_MODEL", "gpt-4o-mini")
-CLASSIFY_VERSION = os.getenv("LOCUST_CLASSIFY_VERSION", "v1")
+DEFAULT_API_KEY = "test-key-1"
+DEFAULT_INFER_MODEL = "gpt-4o-mini"
+DEFAULT_CLASSIFY_VERSION = "v1"
+
+API_KEY = os.getenv("LOCUST_API_KEY", DEFAULT_API_KEY)
+INFER_MODEL = os.getenv("LOCUST_INFER_MODEL", DEFAULT_INFER_MODEL)
+CLASSIFY_VERSION = os.getenv("LOCUST_CLASSIFY_VERSION", DEFAULT_CLASSIFY_VERSION)
 
 INFER_INPUTS = [
     "Summarize quarterly sales performance.",

@@ -42,6 +42,13 @@ Single scene:
 ./.venv/bin/python scripts/demo.py --auto --scene 4
 ```
 
+Supported env overrides:
+- `DEMO_BASE_URL`
+- `DEMO_JAEGER_URL`
+- `DEMO_GRAFANA_URL`
+- `DEMO_API_KEY`
+- `DEMO_RATE_LIMIT_KEY`
+
 ## Scene order
 
 ### Cover
