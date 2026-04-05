@@ -5,8 +5,6 @@ from typing import Any
 
 import structlog
 from fastapi import Request
-from opentelemetry import trace
-from opentelemetry.trace import Span
 
 from app.adapters.base import BaseLLMAdapter
 from app.core.circuit_breaker import CircuitBreaker
@@ -18,15 +16,10 @@ from app.core.observability import (
     log_safe_output,
 )
 from app.core.schemas import InferRequest
+from app.observability.tracing import add_span_event, bind_span_context, get_tracer
 
 logger = structlog.get_logger()
-tracer = trace.get_tracer(__name__)
-
-
-def _set_trace_context(span: Span, model: str, request_id: str) -> None:
-    span.set_attribute("llm.model", model)
-    if request_id:
-        span.set_attribute("request.id", request_id)
+tracer = get_tracer(__name__)
 
 
 async def _audit_log(
@@ -57,7 +50,7 @@ class StreamingService:
     ) -> AsyncGenerator[str, None]:
         tokens: list[str] = []
         with tracer.start_as_current_span("stream_start") as span:
-            _set_trace_context(span, req.model, request_id)
+            bind_span_context(span, request_id, {"llm.model": req.model})
             trace_correlation = get_trace_correlation()
 
             if await self._cb.is_open():
@@ -77,10 +70,10 @@ class StreamingService:
                 index = 0
                 async for chunk in self._adapter.stream(req.model, req.input, req.config):
                     if await request.is_disconnected():
-                        span.add_event("stream_cancelled", {"reason": "client_disconnected"})
+                        add_span_event(span, "stream_cancelled", {"reason": "client_disconnected"})
                         logger.info("client_disconnected", request_id=request_id)
                         break
-                    span.add_event("stream_chunk", {"chunk.index": index})
+                    add_span_event(span, "stream_chunk", {"chunk.index": index})
                     data = json.dumps({"token": chunk, "index": index})
                     yield f"data: {data}\n\n"
                     tokens.append(chunk)
@@ -88,7 +81,7 @@ class StreamingService:
                 await self._cb.record_success()
                 yield "data: [DONE]\n\n"
             except asyncio.CancelledError:
-                span.add_event("stream_cancelled", {"reason": "cancelled_error"})
+                add_span_event(span, "stream_cancelled", {"reason": "cancelled_error"})
                 logger.info("stream_cancelled", request_id=request_id)
                 raise
             except TimeoutError:
@@ -101,5 +94,5 @@ class StreamingService:
                 await self._cb.record_failure()
                 raise
             finally:
-                span.add_event("stream_audit_dispatch", {"token.count": len(tokens)})
+                add_span_event(span, "stream_audit_dispatch", {"token.count": len(tokens)})
                 asyncio.create_task(_audit_log(request_id, req, tokens, trace_correlation))

@@ -4,8 +4,6 @@ from typing import Any
 
 import redis.exceptions
 import structlog
-from opentelemetry import trace
-from opentelemetry.trace import Span
 
 from app.adapters.base import BaseLLMAdapter
 from app.core.circuit_breaker import CircuitBreaker
@@ -14,15 +12,10 @@ from app.core.observability import log_safe_config, log_safe_input, log_safe_out
 from app.core.schemas import InferRequest, InferResponse
 from app.infra.cache import SemanticCache
 from app.infra.request_collapsing import RequestCollapser
+from app.observability.tracing import bind_span_context, get_tracer
 
 logger = structlog.get_logger()
-tracer = trace.get_tracer(__name__)
-
-
-def _set_trace_context(span: Span, model: str, request_id: str) -> None:
-    span.set_attribute("llm.model", model)
-    if request_id:
-        span.set_attribute("request.id", request_id)
+tracer = get_tracer(__name__)
 
 
 class InferenceService:
@@ -45,10 +38,10 @@ class InferenceService:
         safe_input = log_safe_input(req.input)
         safe_config = log_safe_config(req.config)
         with tracer.start_as_current_span("infer_flow") as flow_span:
-            _set_trace_context(flow_span, req.model, request_id)
+            bind_span_context(flow_span, request_id, {"llm.model": req.model})
 
             with tracer.start_as_current_span("cache_check") as span:
-                _set_trace_context(span, req.model, request_id)
+                bind_span_context(span, request_id, {"llm.model": req.model})
                 try:
                     cached = await self._cache.get(req.model, req.input, req.config)
                 except redis.exceptions.ConnectionError as exc:
@@ -68,7 +61,7 @@ class InferenceService:
                     output=cached["output"],
                 )
                 with tracer.start_as_current_span("response_build") as span:
-                    _set_trace_context(span, req.model, request_id)
+                    bind_span_context(span, request_id, {"llm.model": req.model})
                     span.set_attribute("cache.hit", True)
                     response = self._build_response(
                         request_id,
@@ -81,7 +74,7 @@ class InferenceService:
                 return response
 
             with tracer.start_as_current_span("circuit_breaker_check") as span:
-                _set_trace_context(span, req.model, request_id)
+                bind_span_context(span, request_id, {"llm.model": req.model})
                 is_open = await self._cb.is_open()
                 span.set_attribute("circuit.state", "open" if is_open else "closed")
             if is_open:
@@ -121,7 +114,7 @@ class InferenceService:
                             output=collapsed["output"],
                         )
                         with tracer.start_as_current_span("response_build") as span:
-                            _set_trace_context(span, req.model, request_id)
+                            bind_span_context(span, request_id, {"llm.model": req.model})
                             span.set_attribute("cache.hit", True)
                             response = self._build_response(
                                 request_id,
@@ -135,7 +128,7 @@ class InferenceService:
 
             try:
                 with tracer.start_as_current_span("llm_call") as span:
-                    _set_trace_context(span, req.model, request_id)
+                    bind_span_context(span, request_id, {"llm.model": req.model})
                     result: dict[str, Any] = await self._adapter.infer(
                         req.model, req.input, req.config
                     )
@@ -176,7 +169,7 @@ class InferenceService:
             payload = {"output": result["output"], "model": req.model, "usage": usage}
             try:
                 with tracer.start_as_current_span("cache_set") as span:
-                    _set_trace_context(span, req.model, request_id)
+                    bind_span_context(span, request_id, {"llm.model": req.model})
                     span.set_attribute("cache.hit", False)
                     await self._cache.set(req.model, req.input, req.config, payload)
             except redis.exceptions.ConnectionError:
@@ -199,7 +192,7 @@ class InferenceService:
                 output=result["output"],
             )
             with tracer.start_as_current_span("response_build") as span:
-                _set_trace_context(span, req.model, request_id)
+                bind_span_context(span, request_id, {"llm.model": req.model})
                 span.set_attribute("cache.hit", False)
                 response = self._build_response(
                     request_id,

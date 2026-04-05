@@ -1,21 +1,14 @@
 import time
 
 import structlog
-from opentelemetry import trace
-from opentelemetry.trace import Span
 
 from app.core.model_registry import ModelRegistry
 from app.core.observability import get_trace_correlation, log_safe_input
 from app.core.schemas import ClassifyResponse
+from app.observability.tracing import bind_span_context, get_tracer
 
 logger = structlog.get_logger()
-tracer = trace.get_tracer(__name__)
-
-
-def _set_trace_context(span: Span, model_version: str, request_id: str) -> None:
-    span.set_attribute("model.version", model_version)
-    if request_id:
-        span.set_attribute("request.id", request_id)
+tracer = get_tracer(__name__)
 
 
 class ClassifyService:
@@ -31,7 +24,7 @@ class ClassifyService:
         t0 = time.perf_counter()
         safe_input = log_safe_input(text)
         with tracer.start_as_current_span("classify_flow") as span:
-            _set_trace_context(span, model_version, request_id)
+            bind_span_context(span, request_id, {"model.version": model_version})
             trace_correlation = get_trace_correlation()
             wrapper = self._model_registry.get(model_version)
             result = await wrapper.predict(wrapper.input_schema.model_validate({"input": text}))

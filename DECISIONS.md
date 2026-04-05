@@ -308,6 +308,8 @@ I added a small set of manual spans around the parts I actually care about when 
 
 I could have traced more, but it would mostly add noise. For this demo I want the trace tree to be understandable in a few seconds.
 
+I did factor the repeated tracing boilerplate into a tiny helper later on. But I kept `start_as_current_span(...)` in the services so the business flow still reads directly from the request path instead of disappearing behind decorators or middleware.
+
 **Streaming traces focus on lifecycle, not per-token detail**
 
 For SSE I kept the manual tracing at the lifecycle level: stream start, chunk activity, cancellation, and audit dispatch. That's enough to show the happy path and the cancellation path without turning one stream into a noisy trace full of token-level children.
