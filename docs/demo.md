@@ -9,7 +9,7 @@ It focuses on scene order, transitions, and the observability checkpoints that m
 ## Start the stack
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d
+make up STACK=obs ARGS="--build -d"
 ```
 
 Useful URLs:
@@ -21,7 +21,7 @@ Useful URLs:
 Useful log tail:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml logs --no-color --tail=120 app
+make logs STACK=obs ARGS="--no-color --tail=120 app"
 ```
 
 ## Run the demo runner
@@ -31,19 +31,19 @@ The runner gives a reproducible walkthrough of the request path, resilience cont
 Guided mode:
 
 ```bash
-./.venv/bin/python scripts/demo.py
+make demo
 ```
 
 Auto mode:
 
 ```bash
-./.venv/bin/python scripts/demo.py --auto
+make demo ARGS="--auto"
 ```
 
 Single scene:
 
 ```bash
-./.venv/bin/python scripts/demo.py --auto --scene 4
+make demo ARGS="--auto --scene 4"
 ```
 
 Supported env overrides:

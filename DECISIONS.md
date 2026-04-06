@@ -21,7 +21,7 @@ Keeping business logic out of routers. Routes stay thin: extract inputs, call se
 
 **Single process, not microservices**
 
-One FastAPI app + one Redis. No Kafka, no Celery, no separate worker processes. The challenge requires `docker-compose up` with zero configuration — adding a broker or a worker service would break that immediately. One process with asyncio handles the concurrency instead.
+One FastAPI app + one Redis. No Kafka, no Celery, no separate worker processes. The challenge requires `docker compose up` with zero configuration — adding a broker or a worker service would break that immediately. One process with asyncio handles the concurrency instead.
 
 Trade-off: single process limits horizontal scaling. In production I'd run multiple replicas behind a load balancer — Redis already handles all the shared state (cache, rate limit counters, CB if moved there), so replicas are stateless and can scale independently.
 
@@ -107,7 +107,7 @@ Timeout is globally configurable via `LLM_TIMEOUT` env var (default 30s). Per-re
 
 **Stub as default, no real provider needed**
 
-Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real provider. The stub lets `docker-compose up` work without any credentials — that's a hard requirement for this challenge. Either way the service sees the same interface, doesn't matter what's behind it.
+Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real provider. The stub lets `docker compose up` work without any credentials — that's a hard requirement for this challenge. Either way the service sees the same interface, doesn't matter what's behind it.
 
 **Usage field names**
 
@@ -203,13 +203,13 @@ That keeps the implementation local and small, and it gives logs and Jaeger a sh
 
 Bounded prompt/output visibility made more sense than either leaving payloads raw or dropping them entirely. The goal is to keep enough context to explain what happened while avoiding the sloppy "log everything" story.
 
-The masking is intentionally narrow too. I only hide obvious keys like `api_key`, `token`, and `authorization`, and I only do it on the logging-visible payloads. That's enough maturity to talk about without pretending this branch includes a full privacy or compliance subsystem.
+The masking is intentionally narrow too. I only hide obvious keys like `api_key`, `token`, and `authorization`, and I only do it on the logging-visible payloads. That's enough maturity to talk about without pretending this project includes a full privacy or compliance subsystem.
 
 **gRPC is a design artifact here, not a second runtime**
 
-A small `.proto` file is enough to show how classify could evolve toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating this branch with a second server, generated code, or a fake half-implementation.
+A small `.proto` file is enough to show how classify could evolve toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating the project with a second server, generated code, or a fake half-implementation.
 
-The important part for this branch is the boundary, not the transport runtime. So HTTP still owns the gateway path, and gRPC stays as a design artifact for the next hop inward.
+The important part here is the boundary, not the transport runtime. So HTTP still owns the gateway path, and gRPC stays as a design artifact for the next hop inward.
 
 ## 5. Road to production
 
@@ -253,13 +253,13 @@ Each layer scales independently. This API doesn't know what the domain is — it
 
 ---
 
-## 6. Demo branch notes
+## 6. Observability and walkthrough notes
 
 **Observability as an overlay, not a base-stack mutation**
 
-I kept Jaeger, Prometheus, Grafana, and the OTel collector in `docker-compose.observability.yml` instead of bloating the original `docker-compose.yml`. The challenge delivery path stays exactly where it was, and the demo branch becomes an additive overlay I can turn on when I want the full observability story.
+I kept Jaeger, Prometheus, Grafana, and the OTel collector in `docker-compose.observability.yml` instead of bloating the original `docker-compose.yml`. The base stack stays simple, and the observability stack becomes an additive overlay I can turn on when I want the full tracing and metrics story.
 
-Trade-off is one extra compose file and a slightly more complex startup command. Worth it because it lets me say the original submission is still intact and the demo branch is an evolution, not a rewrite.
+Trade-off is one extra compose file and a slightly more complex startup command. Worth it because it keeps the default project path clean while making the richer observability workflow explicit.
 
 **Provisioned dashboards, not click-ops**
 
@@ -273,11 +273,11 @@ I considered just leaning on logs and metrics, or wiring straight to Jaeger-spec
 
 **Tracing stays opt-in**
 
-I only initialize tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is present. So the base stack still behaves like the original delivery, and the extra tracing path only shows up when the observability overlay is enabled on purpose.
+I only initialize tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is present. So the base stack still behaves like the default local setup, and the extra tracing path only shows up when the observability overlay is enabled on purpose.
 
 That felt better than making tracing a silent runtime dependency of the app all the time. The demo gets full traces; the base project stays clean.
 
-I also pulled the tracing env vars into the main settings surface once the branch started carrying more config. The app runtime now reads one settings object for both normal behavior and the optional tracing path, while Locust-specific overrides stay local to the load script because they aren't app config.
+I also pulled the tracing env vars into the main settings surface once the project started carrying more config. The app runtime now reads one settings object for both normal behavior and the optional tracing path, while Locust-specific overrides stay local to the load script because they aren't app config.
 
 **Manual spans stay close to the real gateway path**
 

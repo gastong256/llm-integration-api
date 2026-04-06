@@ -7,6 +7,8 @@ import httpx
 from app.adapters.base import BaseLLMAdapter
 from app.core.exceptions import UpstreamProviderError
 
+_RESERVED_CONFIG_KEYS = {"messages", "model", "stream"}
+
 
 class HttpLLMAdapter(BaseLLMAdapter):
     def __init__(self, base_url: str, timeout_s: int, api_key: str | None = None) -> None:
@@ -88,7 +90,13 @@ class HttpLLMAdapter(BaseLLMAdapter):
             "messages": [{"role": "user", "content": input}],
         }
         if config:
-            payload.update(config)
+            payload.update(
+                {
+                    key: value
+                    for key, value in config.items()
+                    if key not in _RESERVED_CONFIG_KEYS
+                }
+            )
         payload["stream"] = stream  # always wins over config
         return payload
 

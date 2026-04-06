@@ -17,19 +17,19 @@ This is not a capacity-planning doc. It's a practical read of how the current pr
 Base stack:
 
 ```bash
-docker compose up --build -d
+make up ARGS="--build -d"
 ```
 
 Observability overlay:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d
+make up STACK=obs ARGS="--build -d"
 ```
 
 For meaningful Locust runs, raise the limiter first:
 
 ```bash
-RATE_LIMIT_RPM=10000 docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d
+RATE_LIMIT_RPM=10000 make up STACK=obs ARGS="--build -d"
 ```
 
 ## Locust entrypoint
@@ -37,8 +37,7 @@ RATE_LIMIT_RPM=10000 docker compose -f docker-compose.yml -f docker-compose.obse
 Baseline mixed run:
 
 ```bash
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 The script now accepts these env overrides:
@@ -58,39 +57,34 @@ Infer-heavy mix:
 
 ```bash
 LOCUST_INFER_WEIGHT=4 LOCUST_CLASSIFY_WEIGHT=1 \
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 Classify-heavy mix:
 
 ```bash
 LOCUST_INFER_WEIGHT=1 LOCUST_CLASSIFY_WEIGHT=4 \
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 Warm-cache infer mix:
 
 ```bash
 LOCUST_INFER_WEIGHT=4 LOCUST_CLASSIFY_WEIGHT=1 LOCUST_INFER_INPUT_MODE=single \
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 Classify-only mix:
 
 ```bash
 LOCUST_INFER_WEIGHT=0 LOCUST_CLASSIFY_WEIGHT=1 \
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 ## Current benchmark session
 
 The numbers below come from a fresh local session on `2026-04-06` with:
-- `docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d`
-- `RATE_LIMIT_RPM=10000`
+- `RATE_LIMIT_RPM=10000 make up STACK=obs ARGS="--build -d"`
 - `LLM_ADAPTER=stub`
 - Locust `8` users, spawn rate `2`, runtime `20s`
 - three repetitions per load scenario

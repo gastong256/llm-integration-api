@@ -82,3 +82,24 @@ async def test_http_adapter_health_check_returns_false_on_http_error() -> None:
     assert await adapter.health_check() is False
 
     await adapter.aclose()
+
+
+def test_http_adapter_build_payload_keeps_reserved_fields_owned_by_adapter() -> None:
+    adapter = HttpLLMAdapter("http://provider.test", 5)
+
+    payload = adapter._build_payload(
+        "gpt-4o-mini",
+        "hello",
+        {
+            "temperature": 0.3,
+            "model": "other-model",
+            "messages": [{"role": "system", "content": "override"}],
+            "stream": False,
+        },
+        stream=True,
+    )
+
+    assert payload["model"] == "gpt-4o-mini"
+    assert payload["messages"] == [{"role": "user", "content": "hello"}]
+    assert payload["stream"] is True
+    assert payload["temperature"] == 0.3

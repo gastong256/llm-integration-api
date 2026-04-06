@@ -17,6 +17,24 @@ class AllowingRateLimiter:
         return True, 0.0, 59, 60
 
 
+class RecordingCircuitBreaker:
+    def __init__(self) -> None:
+        self.success_calls = 0
+        self.failure_calls = 0
+
+    async def is_open(self) -> bool:
+        return False
+
+    async def record_success(self) -> None:
+        self.success_calls += 1
+
+    async def record_failure(self) -> None:
+        self.failure_calls += 1
+
+    def get_retry_after(self) -> float:
+        return 0.0
+
+
 class StreamAdapter(BaseLLMAdapter):
     def __init__(self, tokens: list[str]) -> None:
         self._tokens = tokens
@@ -134,11 +152,13 @@ async def test_stream_audit_dispatch_carries_trace_correlation(monkeypatch) -> N
         req,
         tokens: list[str],
         trace_correlation: dict[str, str],
+        status: str,
     ) -> None:
         captured["request_id"] = request_id
         captured["tokens"] = tokens
         captured["trace_correlation"] = trace_correlation
         captured["input"] = req.input
+        captured["status"] = status
 
     real_create_task = asyncio.create_task
 
@@ -176,3 +196,58 @@ async def test_stream_audit_dispatch_carries_trace_correlation(monkeypatch) -> N
         "trace_id": "a" * 32,
         "span_id": "b" * 16,
     }
+    assert captured["status"] == "success"
+
+
+@pytest.mark.asyncio
+async def test_stream_disconnect_does_not_emit_done_or_record_success(monkeypatch) -> None:
+    tasks: list[asyncio.Task[None]] = []
+    captured: dict[str, Any] = {}
+
+    async def fake_audit_log(
+        request_id: str,
+        req,
+        tokens: list[str],
+        trace_correlation: dict[str, str],
+        status: str,
+    ) -> None:
+        captured["request_id"] = request_id
+        captured["tokens"] = tokens
+        captured["status"] = status
+
+    real_create_task = asyncio.create_task
+
+    def fake_create_task(coro):
+        task = real_create_task(coro)
+        tasks.append(task)
+        return task
+
+    class DisconnectingRequest:
+        def __init__(self) -> None:
+            self._calls = 0
+
+        async def is_disconnected(self) -> bool:
+            self._calls += 1
+            return self._calls > 1
+
+    monkeypatch.setattr("app.services.streaming_service._audit_log", fake_audit_log)
+    monkeypatch.setattr("app.services.streaming_service.asyncio.create_task", fake_create_task)
+
+    breaker = RecordingCircuitBreaker()
+    service = StreamingService(StreamAdapter(["alpha", "beta"]), breaker)
+    body: list[str] = []
+
+    async for chunk in service.stream(
+        "req-456",
+        type("Req", (), {"model": "gpt-4o-mini", "input": "stream this", "config": None})(),
+        DisconnectingRequest(),
+    ):
+        body.append(chunk)
+
+    await asyncio.gather(*tasks)
+    assert body == ['data: {"token": "alpha", "index": 0}\n\n']
+    assert breaker.success_calls == 0
+    assert breaker.failure_calls == 0
+    assert captured["request_id"] == "req-456"
+    assert captured["tokens"] == ["alpha"]
+    assert captured["status"] == "cancelled"

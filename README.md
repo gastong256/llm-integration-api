@@ -27,6 +27,15 @@ make setup
 make test
 ```
 
+Common workflows:
+
+```bash
+RATE_LIMIT_RPM=10000 make up STACK=obs ARGS="--build -d"
+make logs STACK=obs ARGS="--no-color --tail=200 app"
+make demo ARGS="--auto --scene 2"
+make bench ARGS="--headless -u 8 -r 2 -t 20s --host http://localhost:8000"
+```
+
 ---
 
 ## Architecture
@@ -164,16 +173,16 @@ For a focused manual validation flow covering the critical challenge behaviors â
 
 ---
 
-## Walkthrough and observability
+## Local observability and walkthrough
 
-The project also includes an observability overlay and a guided walkthrough on top of the base gateway path.
+The project also includes an observability overlay and a guided walkthrough around the base gateway path.
 
 ### Observability overlay
 
 Bring the full demo stack up with:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d
+make up STACK=obs ARGS="--build -d"
 ```
 
 Useful URLs:
@@ -191,14 +200,14 @@ Tracing stays opt-in. The base stack still works on its own; the overlay just tu
 The live demo flow is scripted in `scripts/demo.py`.
 
 ```bash
-./.venv/bin/python scripts/demo.py
+make demo
 ```
 
 Helpful variants:
 
 ```bash
-./.venv/bin/python scripts/demo.py --auto
-./.venv/bin/python scripts/demo.py --auto --scene 3
+make demo ARGS="--auto"
+make demo ARGS="--auto --scene 3"
 ```
 
 The full scene order and the live presentation notes are in [docs/demo.md](docs/demo.md).
@@ -289,17 +298,20 @@ make precommit   # all pre-commit hooks
 ## Load Testing
 
 ```bash
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 The default `RATE_LIMIT_RPM=60` will dominate results before you see anything useful about throughput. For real load tests, raise it:
 
 ```bash
-RATE_LIMIT_RPM=10000 docker compose up --build -d
+RATE_LIMIT_RPM=10000 make up ARGS="--build -d"
 ```
 
-Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. If you want to pair the run with Jaeger and Grafana, lift the observability overlay instead of the base stack.
+Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. If you want to pair the run with Jaeger and Grafana, lift the observability overlay instead:
+
+```bash
+RATE_LIMIT_RPM=10000 make up STACK=obs ARGS="--build -d"
+```
 
 In local runs, the main signal is still the gap between an infer cache miss and a warm cache hit. The benchmark doc keeps fresh sample numbers and the matching observability readings so the README can stay short.
 
@@ -317,7 +329,7 @@ For the repeated mixed, warm-cache, and classify-only runs, plus the matching Gr
 
 ## Models
 
-`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. They were trained on small retail-observation sentiment examples so the classify demo stays closer to the company domain. `docker compose up` works without any extra steps.
+`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. They were trained on small retail-observation sentiment examples so the classify demo stays closer to the company domain. `make up` works without any extra steps.
 
 To regenerate the models from scratch:
 
