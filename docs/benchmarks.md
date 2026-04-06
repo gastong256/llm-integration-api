@@ -1,17 +1,16 @@
 # Benchmarks and observability notes
 
-This is the home for the branch's load-testing notes and the matching observability readings.
-
-I didn't want this detail sitting in `DECISIONS.md`, and it was starting to make the README too heavy too. So the README keeps the entrypoint, and this doc keeps the measurement details.
+This is the home for the project's load-testing notes and the matching observability readings.
 
 ## What these numbers mean
 
 The useful read in this repo is:
 - cache miss vs cache hit
 - mixed workload vs infer-heavy workload
+- classify-only throughput
 - resilience under pressure vs clean scaling
 
-This is not a capacity-planning doc. It's a practical read of how the current branch behaves under repeatable local runs.
+This is not a capacity-planning doc. It's a practical read of how the current project behaves under repeatable local runs.
 
 ## Baseline setup
 
@@ -79,23 +78,32 @@ uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
   --host http://localhost:8000
 ```
 
+Classify-only mix:
+
+```bash
+LOCUST_INFER_WEIGHT=0 LOCUST_CLASSIFY_WEIGHT=1 \
+uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
+  --host http://localhost:8000
+```
+
 ## Current benchmark session
 
-The numbers below come from a fresh local run on `2026-04-05` with:
+The numbers below come from a fresh local session on `2026-04-06` with:
 - `docker compose -f docker-compose.yml -f docker-compose.observability.yml up --build -d`
 - `RATE_LIMIT_RPM=10000`
 - `LLM_ADAPTER=stub`
 - Locust `8` users, spawn rate `2`, runtime `20s`
+- three repetitions per load scenario
 
 ### Direct request spot-checks
 
 These use direct requests against the live app to isolate the three signals that matter most in this repo.
 
-| Scenario | p50 | p95 | Notes |
+| Scenario | p50 range | p95 range | Notes |
 | --- | ---: | ---: | --- |
-| `/v1/infer` cache miss | 156.51 ms | 159.69 ms | 5 unique prompts |
-| `/v1/infer` cache hit | 1.97 ms | 3.33 ms | 10 repeated requests after one warm-up call |
-| `/v1/classify` | 2.48 ms | 3.06 ms | 10 local wrapper requests |
+| `/v1/infer` cache miss | 154.84-158.48 ms | 159.28-163.93 ms | 3 runs, 5 unique prompts each |
+| `/v1/infer` cache hit | 1.84-2.29 ms | 2.39-2.78 ms | 3 runs, 10 repeated requests after warm-up |
+| `/v1/classify` | 2.46-2.67 ms | 2.73-3.82 ms | 3 runs, 10 local wrapper requests each |
 
 ### Locust results
 
@@ -107,16 +115,16 @@ Default traffic mix from `scripts/locustfile.py`:
 - 1:1 user weights
 - rotating infer prompts
 
-Results:
+Results across 3 runs:
 
-| Endpoint | Requests | Failures | p50 | p95 | Max |
+| Endpoint | Requests | Failures | p50 range | p95 range | Max range |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `/v1/infer` | 1456 | 0 | 7 ms | 18 ms | 163 ms |
-| `/v1/classify` | 1465 | 0 | 9 ms | 13 ms | 71 ms |
-| Aggregated | 2921 | 0 | 8 ms | 17 ms | 163 ms |
+| `/v1/infer` | 1388-1400 | 0 | 4-7 ms | 14-21 ms | 67.99-169.08 ms |
+| `/v1/classify` | 1396-1400 | 0 | 8-10 ms | 17-20 ms | 63.74-92.27 ms |
+| Aggregated | 2784-2800 | 0 | 8-9 ms | 16-20 ms | 67.99-169.08 ms |
 
 Observed throughput:
-- ~147 req/s aggregate
+- ~139-140 req/s aggregate
 
 #### Warm-cache infer-heavy workload
 
@@ -125,41 +133,58 @@ Configured with:
 - `LOCUST_CLASSIFY_WEIGHT=1`
 - `LOCUST_INFER_INPUT_MODE=single`
 
-Results:
+Results across 3 runs:
 
-| Endpoint | Requests | Failures | p50 | p95 | Max |
+| Endpoint | Requests | Failures | p50 range | p95 range | Max range |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| `/v1/infer` | 2213 | 0 | 7 ms | 15 ms | 80 ms |
-| `/v1/classify` | 712 | 0 | 7 ms | 12 ms | 59 ms |
-| Aggregated | 2925 | 0 | 7 ms | 14 ms | 80 ms |
+| `/v1/infer` | 2117-2120 | 0 | 7-9 ms | 17-20 ms | 61.26-91.91 ms |
+| `/v1/classify` | 680-682 | 0 | 7-8 ms | 14-16 ms | 50.43-74.84 ms |
+| Aggregated | 2797-2802 | 0 | 7-8 ms | 16-19 ms | 61.26-91.91 ms |
 
 Observed throughput:
-- ~148 req/s aggregate
+- ~140 req/s aggregate
 
-The useful read here is not "warm cache makes Locust infinitely fast". It is:
+#### Classify-only workload
+
+Configured with:
+- `LOCUST_INFER_WEIGHT=0`
+- `LOCUST_CLASSIFY_WEIGHT=1`
+
+Results across 3 runs:
+
+| Endpoint | Requests | Failures | p50 range | p95 range | Max range |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `/v1/classify` | 2793-2800 | 0 | 13-15 ms | 19-22 ms | 58.02-72.41 ms |
+| Aggregated | 2793-2800 | 0 | 13-15 ms | 19-22 ms | 58.02-72.41 ms |
+
+Observed throughput:
+- ~140 req/s aggregate
+
+The important read here is:
 - the miss/hit gap stays large in direct spot-checks
 - once the cache is warm, the mixed and infer-heavy runs stay stable with no failures
 - the infer tail tightens when repeated requests stop paying the stub latency cost
 
 ### Observability snapshot from the same session
 
-These values came from the live app's `/metrics` endpoint after the benchmark session, plus Jaeger traces from the same overlay run.
+These values came from the live app's `/metrics` endpoint after the repeated benchmark session, plus Jaeger traces from the same overlay run.
 
 From `/metrics`:
 
 | Signal | Value | Read |
 | --- | ---: | --- |
-| `llm_api_request_latency_seconds_count` | 5956 | thousands of requests served in one short local session |
-| `llm_api_cache_hits_total` | 3747 | cache hit activity dominated the session |
-| `llm_api_tokens_total{type="input"}` | 49 | provider-side input tokens stayed low because repeated hits bypassed the stub |
-| `llm_api_tokens_total{type="output"}` | 110 | same story on output tokens |
-| `llm_api_cost_estimated_usd_total` | 0.00007335 USD | estimated cost stayed near zero under cache-heavy traffic |
+| `llm_api_request_latency_seconds_count` | 26486 | tens of thousands of requests served across the repeated session |
+| `llm_api_cache_hits_total` | 11078 | cache-hit activity remained high across the infer-heavy and spot-check paths |
+| `llm_api_tokens_total{type="input"}` | 82 | provider-side input tokens stayed comparatively low because repeated hits bypassed the stub |
+| `llm_api_tokens_total{type="output"}` | 220 | same story on output tokens |
+| `llm_api_cost_estimated_usd_total` | 0.0001443 USD | estimated cost stayed near zero even after the repeated session |
 
 From Jaeger:
 - `inference-api` was present as a traced service during the run
+- recent traces included both `infer_flow` and `classify_flow`
 - recent warm-cache traces showed `infer_flow -> cache_check -> GET -> response_build`
 - those traces carried `cache.hit=true` on `cache_check` and `response_build`
-- the representative cache-hit traces did not include `llm_call`, which matches the metrics story
+- representative cache-hit traces did not include `llm_call`, which matches the metrics story
 
 ## How to read the results
 
@@ -178,6 +203,15 @@ The default Locust script mixes:
 - `/v1/classify`
 
 So the numbers are useful for the repo's demo traffic mix, not as a pure infer benchmark.
+
+### Classify-only is the clean local-model read
+
+The classify-only run is useful because it removes:
+- Redis cache effects
+- upstream stub latency
+- circuit-breaker noise
+
+What remains is the local wrapper and sklearn serving path on its own.
 
 ### Stub mode changes the interpretation
 
@@ -249,4 +283,5 @@ For streaming, a cancelled request is still the clearest trace to show because i
 - If `RATE_LIMIT_RPM` stays at the default `60`, the limiter dominates the run and the throughput read is mostly useless.
 - Warm cache changes the shape of the infer distribution quickly.
 - The mixed Locust workload is good for the repo's story, but not for capacity claims about infer alone.
+- The classify-only run is a cleaner local-model benchmark, but it still reflects this local machine and container setup.
 - Observability numbers need at least one scrape interval to settle in Prometheus/Grafana.

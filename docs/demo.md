@@ -1,10 +1,10 @@
 # Demo guide
 
-This is the live presentation flow for the demo branch.
+This guide covers the live presentation flow for the project.
 
 The main idea is simple: keep the original gateway path intact, then layer observability and the model-serving evolution story on top of it.
 
-I kept this guide separate from the main README on purpose. The README still works better as the project entrypoint; the scene order, live transitions, and observability talking points read more naturally here.
+It focuses on scene order, transitions, and the observability checkpoints that matter during the walkthrough.
 
 ## Start the stack
 
@@ -26,9 +26,7 @@ docker compose -f docker-compose.yml -f docker-compose.observability.yml logs --
 
 ## Run the demo runner
 
-The runner is scripted on purpose. I'd rather have one reproducible walkthrough than depend on a pile of manual curls and browser tab switching during the live presentation.
-
-That does mean carrying one repo-local script whose value is mostly presentation, not product runtime. I'm fine with that trade-off because this branch is explicitly a demo evolution, and the script makes the observability and resilience story much easier to show live.
+The runner gives a reproducible walkthrough of the request path, resilience controls, and observability views.
 
 Guided mode:
 
@@ -159,4 +157,4 @@ That makes logs and traces feel like one story instead of two separate tools.
 
 Suggested close:
 
-"So the branch still behaves like the original gateway, but now I can show the real request path, the resilience controls, the classifier boundary, and the observability story in one run."
+"So the project keeps the original gateway behavior while making the request path, resilience controls, classifier boundary, and observability story easy to show in one run."

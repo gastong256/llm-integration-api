@@ -164,9 +164,9 @@ For a focused manual validation flow covering the critical challenge behaviors â
 
 ---
 
-## Demo branch
+## Walkthrough and observability
 
-This branch also carries an observability overlay and a guided demo runner on top of the original delivery path.
+The project also includes an observability overlay and a guided walkthrough on top of the base gateway path.
 
 ### Observability overlay
 
@@ -214,17 +214,17 @@ The app now emits:
 - output token counters
 - `estimated cost` counters
 
-Cost is intentionally derived from post-flight `usage` plus configured pricing. It's useful operationally, but it's not pretending to be billing truth.
+Cost is derived from post-flight `usage` plus configured pricing. It is useful operationally, but it is only an estimate.
 
 ### Logs and traces
 
-Structured logs still carry `request_id`, and traced requests now also carry `trace_id` and `span_id`. That gives the demo one shared handle between app logs and Jaeger instead of two separate stories.
+Structured logs still carry `request_id`, and traced requests now also carry `trace_id` and `span_id`. This makes log-to-trace correlation explicit in the walkthrough and in local debugging.
 
 Prompt and output previews in demo-visible logs are bounded on purpose, and obvious secret-bearing keys like `api_key`, `token`, and `authorization` are masked in log-visible payloads.
 
 ### gRPC evolution artifact
 
-There is no runnable gRPC server in this branch. The `.proto` file in `protos/model_serving.proto` is there as a design artifact to show how I'd evolve the gateway toward an internal HTTP edge -> gRPC model-serving split later.
+There is no runnable gRPC server in the current project. The `.proto` file in `protos/model_serving.proto` documents a possible internal evolution toward an HTTP edge -> gRPC model-serving split.
 
 ---
 
@@ -311,7 +311,7 @@ Supported Locust overrides:
 - `LOCUST_CLASSIFY_WEIGHT`
 - `LOCUST_INFER_INPUT_MODE`
 
-For the detailed sample measurements, rerun commands, and the matching Grafana / Prometheus / Jaeger readings, see [docs/benchmarks.md](docs/benchmarks.md).
+For the repeated mixed, warm-cache, and classify-only runs, plus the matching Grafana / Prometheus / Jaeger readings, see [docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 
