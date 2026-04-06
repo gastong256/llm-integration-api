@@ -5,6 +5,7 @@ services:
       - "8000:8000"
     environment:
       - REDIS_URL=redis://redis:6379
+      - RATE_LIMIT_RPM=${RATE_LIMIT_RPM:-60}
       - STUB_FAILURE_RATE=${STUB_FAILURE_RATE:-0.0}
     depends_on:
       - redis

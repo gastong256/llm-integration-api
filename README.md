@@ -296,28 +296,22 @@ uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
 The default `RATE_LIMIT_RPM=60` will dominate results before you see anything useful about throughput. For real load tests, raise it:
 
 ```bash
-RATE_LIMIT_RPM=10000 make run
+RATE_LIMIT_RPM=10000 docker compose up --build -d
 ```
 
-Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. In production, use dedicated load-test API keys with relaxed limits rather than touching the global default.
+Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. If you want to pair the run with Jaeger and Grafana, lift the observability overlay instead of the base stack.
 
-In local runs, the main signal is still the gap between an infer cache miss and a warm cache hit. A small mixed Locust run stayed clean with no failures; pushing user count much higher kept the service alive but degraded latency sharply, so the useful read here is resilience under pressure, not clean linear scaling.
-
-Point measurements from the branch work, using the app's own `latency_ms` field:
-
-| Scenario | p50 | p95 | Notes |
-| --- | ---: | ---: | --- |
-| `/v1/infer` cache miss | ~152 ms | — | 40 samples |
-| `/v1/infer` cache hit | ~0.2 ms | — | 40 samples |
-| `/v1/classify` | ~1 ms | — | 40 samples |
-| Locust, 8 users | ~7 ms | ~11 ms | mixed workload, ~166 req/s, 0 failures |
-
-At 100 users the service still returned 0 failures, but latency degraded sharply instead of holding flat: aggregate p50 was ~85 ms, aggregate p95 was ~1000 ms, and `/v1/infer` median was ~1100 ms. So the practical read is "kept serving under pressure", not "scales cleanly to 100 users".
+In local runs, the main signal is still the gap between an infer cache miss and a warm cache hit. The benchmark doc keeps fresh sample numbers and the matching observability readings so the README can stay short.
 
 Supported Locust overrides:
 - `LOCUST_API_KEY`
 - `LOCUST_INFER_MODEL`
 - `LOCUST_CLASSIFY_VERSION`
+- `LOCUST_INFER_WEIGHT`
+- `LOCUST_CLASSIFY_WEIGHT`
+- `LOCUST_INFER_INPUT_MODE`
+
+For the detailed sample measurements, rerun commands, and the matching Grafana / Prometheus / Jaeger readings, see [docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 
