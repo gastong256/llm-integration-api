@@ -36,6 +36,8 @@ make demo ARGS="--auto --scene 2"
 make bench ARGS="--headless -u 8 -r 2 -t 20s --host http://localhost:8000"
 ```
 
+`make up` uses the standard `RATE_LIMIT_RPM=60` unless you override it explicitly for load testing.
+
 ---
 
 ## Architecture
@@ -64,6 +66,26 @@ Client
   │
   └── GET /metrics ──────────→ Prometheus counters + latency histogram
 ```
+
+### Where This Sits
+
+```
+Client / BFF
+     │
+     ▼
+[RAG / Domain Service]    ← retrieves data, builds prompts, knows the business
+     │
+     ▼
+[This Inference API]      ← auth, rate limit, cache, CB, model serving
+     │
+     ▼
+[LLM Gateway]             ← provider routing, fallback, cost tracking
+     │
+     ▼
+[Providers / local models]
+```
+
+Each layer scales independently. This API does not know what the domain is; it receives a prompt and returns a response. Business logic lives upstream.
 
 ---
 
@@ -190,6 +212,8 @@ Useful URLs:
 - Jaeger: `http://localhost:16686`
 - Grafana: `http://localhost:3000`
 - Prometheus: `http://localhost:9090`
+
+For the demo-oriented Grafana dashboard, `Last 15 minutes` or `Last 30 minutes` is the most useful time picker because the key panels are intentionally range-based instead of only showing instant rates.
 
 Tracing stays opt-in. The base stack still works on its own; the overlay just turns on the extra observability path by setting:
 - `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`

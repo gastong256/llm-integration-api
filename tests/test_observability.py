@@ -1,3 +1,4 @@
+import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.trace import use_span
 
@@ -10,6 +11,50 @@ from app.core.observability import (
     sanitize_for_log,
     truncate_text,
 )
+from app.core.circuit_breaker import CircuitBreaker
+from app.main import _metric_path_label, _status_class_label
+from app.services.inference_service import InferenceService
+
+
+class AllowingRateLimiter:
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return True, 0.0, 59, 60
+
+
+class RejectingRateLimiter:
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return False, 12.4, 0, 12
+
+
+class InMemoryCache:
+    def __init__(self) -> None:
+        self._values: dict[str, dict[str, object]] = {}
+
+    def make_key(self, model: str, input: str, config: dict[str, object] | None) -> str:
+        return repr((model, input, config))
+
+    async def get(
+        self, model: str, input: str, config: dict[str, object] | None
+    ) -> dict[str, object] | None:
+        return self._values.get(self.make_key(model, input, config))
+
+    async def set(
+        self,
+        model: str,
+        input: str,
+        config: dict[str, object] | None,
+        value: dict[str, object],
+    ) -> None:
+        self._values[self.make_key(model, input, config)] = value
+
+
+class UnusedInferenceService:
+    async def infer(self, request_id: str, req) -> None:
+        raise AssertionError("inference service should not be called")
 
 
 def test_add_trace_correlation_skips_when_no_active_span() -> None:
@@ -89,3 +134,63 @@ def test_log_safe_helpers_keep_safe_logging_semantics_explicit() -> None:
         "api_key": "***",
         "temperature": 0.2,
     }
+
+
+def test_metric_path_label_stays_low_cardinality() -> None:
+    assert _metric_path_label("/health") == "/health"
+    assert _metric_path_label("/v1/infer") == "/v1/infer"
+    assert _metric_path_label("/v1/classify") == "/v1/classify"
+    assert _metric_path_label("/metrics") == "other"
+    assert _metric_path_label("/unknown/path") == "other"
+
+
+def test_status_class_label_groups_status_codes() -> None:
+    assert _status_class_label(200) == "2xx"
+    assert _status_class_label(429) == "4xx"
+    assert _status_class_label(503) == "5xx"
+
+
+@pytest.mark.asyncio
+async def test_metrics_include_http_request_breakdown_for_success_paths(
+    async_client, app_instance, valid_headers, stub_adapter
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    app_instance.state.inference_service = InferenceService(
+        stub_adapter,
+        InMemoryCache(),
+        CircuitBreaker(),
+    )
+
+    await async_client.get("/health")
+    await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"model": "gpt-4o-mini", "input": "observability metrics"},
+    )
+    await async_client.post(
+        "/v1/classify",
+        headers={**valid_headers, "X-Model-Version": "v1"},
+        json={"input": "pricing looks accurate"},
+    )
+
+    metrics = (await async_client.get("/metrics")).text
+
+    assert 'llm_api_http_requests_total{path="/health",status_class="2xx"}' in metrics
+    assert 'llm_api_http_requests_total{path="/v1/infer",status_class="2xx"}' in metrics
+    assert 'llm_api_http_requests_total{path="/v1/classify",status_class="2xx"}' in metrics
+
+
+@pytest.mark.asyncio
+async def test_metrics_include_http_request_breakdown_for_429(async_client, app_instance) -> None:
+    app_instance.state.rate_limiter = RejectingRateLimiter()
+    app_instance.state.inference_service = UnusedInferenceService()
+
+    await async_client.post(
+        "/v1/infer",
+        headers={"X-API-Key": "test-key-1"},
+        json={"model": "gpt-4o-mini", "input": "too many"},
+    )
+
+    metrics = (await async_client.get("/metrics")).text
+
+    assert 'llm_api_http_requests_total{path="/v1/infer",status_class="4xx"}' in metrics

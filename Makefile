@@ -4,6 +4,7 @@
 COMPOSE := docker compose
 STACK ?= base
 ARGS ?=
+RATE_LIMIT_RPM ?= 60
 
 ifeq ($(STACK),obs)
 COMPOSE_FILES := -f docker-compose.yml -f docker-compose.observability.yml
@@ -38,8 +39,8 @@ precommit: ## Run all pre-commit hooks
 run: ## Run FastAPI app locally with reload
 	uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --no-access-log
 
-up: ## Start docker stack (STACK=base|obs, ARGS="--build -d")
-	$(COMPOSE) $(COMPOSE_FILES) up $(ARGS)
+up: ## Start docker stack (STACK=base|obs, ARGS="--build -d", RATE_LIMIT_RPM=60)
+	RATE_LIMIT_RPM=$(RATE_LIMIT_RPM) $(COMPOSE) $(COMPOSE_FILES) up $(ARGS)
 
 down: ## Stop docker stack (STACK=base|obs, ARGS="--remove-orphans")
 	$(COMPOSE) $(COMPOSE_FILES) down $(ARGS)

@@ -49,6 +49,11 @@ REQUEST_LATENCY = Histogram(
     "Application request latency in seconds.",
     buckets=(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0),
 )
+HTTP_REQUESTS = Counter(
+    "llm_api_http_requests_total",
+    "Application HTTP requests grouped by normalized path and status class.",
+    ["path", "status_class"],
+)
 CACHE_HITS = Counter(
     "llm_api_cache_hits_total",
     "Successful infer responses served from cache.",
@@ -71,6 +76,7 @@ COST_ESTIMATED = Counter(
     "Estimated LLM cost in USD recorded after successful provider calls.",
     ["model"],
 )
+TRACKED_HTTP_PATHS = frozenset({"/health", "/v1/infer", "/v1/infer/stream", "/v1/classify"})
 
 structlog.configure(
     processors=[
@@ -133,6 +139,14 @@ def _build_usage_metrics_recorder(settings: Settings) -> Callable[[str, dict[str
         COST_ESTIMATED.labels(model=model).inc(_estimate_cost_usd(settings, usage))
 
     return record_usage_metrics
+
+
+def _metric_path_label(path: str) -> str:
+    return path if path in TRACKED_HTTP_PATHS else "other"
+
+
+def _status_class_label(status_code: int) -> str:
+    return f"{status_code // 100}xx"
 
 
 def _configure_tracing(settings: Settings, app: FastAPI) -> TracerProvider | None:
@@ -220,6 +234,7 @@ async def record_metrics(request: Request, call_next: Callable) -> Response:
     started_at = time.perf_counter()
     response = await call_next(request)
     path = request.url.path
+    metric_path = _metric_path_label(path)
 
     if path == "/v1/infer" and response.headers.get("content-type", "").startswith(
         "application/json"
@@ -235,6 +250,10 @@ async def record_metrics(request: Request, call_next: Callable) -> Response:
 
     if path != "/metrics":
         REQUEST_LATENCY.observe(time.perf_counter() - started_at)
+        HTTP_REQUESTS.labels(
+            path=metric_path,
+            status_class=_status_class_label(response.status_code),
+        ).inc()
         if response.status_code == 429:
             RATE_LIMITS.inc()
 

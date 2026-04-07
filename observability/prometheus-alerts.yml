@@ -1,0 +1,32 @@
+groups:
+  - name: inference-api-demo-alerts
+    rules:
+      - alert: InferenceApiRateLimitActivity
+        expr: sum(increase(llm_api_rate_limit_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: inference-api
+        annotations:
+          summary: "Rate limit rejections observed"
+          description: "The API returned at least one 429 in the last 5 minutes."
+
+      - alert: InferenceApiCircuitOpenActivity
+        expr: sum(increase(llm_api_circuit_open_total[5m])) > 0
+        for: 30s
+        labels:
+          severity: warning
+          service: inference-api
+        annotations:
+          summary: "Circuit breaker opened"
+          description: "The API returned at least one fast 503 circuit-open rejection in the last 5 minutes."
+
+      - alert: InferenceApiHighP95Latency
+        expr: 1000 * histogram_quantile(0.95, sum(rate(llm_api_request_latency_seconds_bucket[5m])) by (le)) > 250
+        for: 2m
+        labels:
+          severity: warning
+          service: inference-api
+        annotations:
+          summary: "High p95 latency"
+          description: "Application p95 latency has stayed above 250 ms for 2 minutes."

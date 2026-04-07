@@ -307,7 +307,24 @@ Could have pushed the cost math into Grafana from raw counters only. I didn't. I
 
 **The dashboard stays compact and demo-oriented**
 
-I kept the dashboard tight on purpose: request rate, p50/p95, cache, circuit breaker, rate limit, tokens, and estimated cost. That's the story I actually want to tell live. Anything bigger would feel more like an ops dump than a demo.
+I kept the dashboard tight on purpose, but I shifted it away from fragile instant-only signals and toward a mix of stable range stats plus a few live trends. The top row now answers "what happened in the selected window" with:
+
+- requests served
+- latency p50 / p95 in range
+- cache hits in range
+- circuit-open rejections in range
+- rate-limit rejections in range
+
+Then the lower charts keep a small live view for:
+
+- request rate over time
+- latency over time
+- cache / protection events over time
+- input tokens in range
+- output tokens in range
+- estimated cost in range
+
+That shape tells the live story better. I don't have to stare at Grafana at the exact second a burst is running just to prove the cache or limiter fired. The evidence stays visible in the selected time range, which is both better for the demo and closer to how I'd explain a short benchmark session in a real review.
 
 If this grew into a real production dashboard, I'd split it into a few focused views instead of stuffing everything into one screen.
 
