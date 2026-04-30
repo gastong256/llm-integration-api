@@ -12,6 +12,12 @@ dependencies = [
     "joblib==1.4.2",
     "scikit-learn==1.6.1",
     "prometheus-fastapi-instrumentator==7.1.0",
+    "opentelemetry-api==1.40.0",
+    "opentelemetry-sdk==1.40.0",
+    "opentelemetry-exporter-otlp==1.40.0",
+    "opentelemetry-instrumentation-fastapi==0.61b0",
+    "opentelemetry-instrumentation-httpx==0.61b0",
+    "opentelemetry-instrumentation-redis==0.61b0",
 ]
 
 [project.optional-dependencies]

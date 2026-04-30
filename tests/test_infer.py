@@ -3,6 +3,7 @@ from typing import Any
 import pytest
 
 from app.core.circuit_breaker import CircuitBreaker
+from app.core.exceptions import UpstreamProviderError
 from app.services.inference_service import InferenceService
 
 
@@ -10,13 +11,13 @@ class InMemoryCache:
     def __init__(self) -> None:
         self._values: dict[str, dict[str, Any]] = {}
 
-    def _make_key(self, model: str, input: str, config: dict[str, Any] | None) -> str:
+    def make_key(self, model: str, input: str, config: dict[str, Any] | None) -> str:
         return repr((model, input, config))
 
     async def get(
         self, model: str, input: str, config: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        return self._values.get(self._make_key(model, input, config))
+        return self._values.get(self.make_key(model, input, config))
 
     async def set(
         self,
@@ -25,22 +26,36 @@ class InMemoryCache:
         config: dict[str, Any] | None,
         value: dict[str, Any],
     ) -> None:
-        self._values[self._make_key(model, input, config)] = value
+        self._values[self.make_key(model, input, config)] = value
 
 
 class AllowingRateLimiter:
-    async def check(self, client_id: str) -> tuple[bool, float]:
-        return True, 0.0
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return True, 0.0, 59, 60
 
 
 class RejectingRateLimiter:
-    async def check(self, client_id: str) -> tuple[bool, float]:
-        return False, 12.4
+    limit = 60
+
+    async def check(self, client_id: str) -> tuple[bool, float, int, int]:
+        return False, 12.4, 0, 12
 
 
 class UnusedInferenceService:
     async def infer(self, request_id: str, req) -> None:
         raise AssertionError("inference service should not be called")
+
+
+class TimeoutInferenceService:
+    async def infer(self, request_id: str, req) -> None:
+        raise TimeoutError("upstream timed out")
+
+
+class UpstreamErrorInferenceService:
+    async def infer(self, request_id: str, req) -> None:
+        raise UpstreamProviderError(503)
 
 
 @pytest.mark.asyncio
@@ -69,6 +84,9 @@ async def test_infer_returns_success(
     assert body["usage"]["tokens_out"] == 10
     assert body["latency_ms"] >= 0
     assert body["request_id"]
+    assert response.headers["X-RateLimit-Limit"] == "60"
+    assert response.headers["X-RateLimit-Remaining"] == "59"
+    assert response.headers["X-RateLimit-Reset"] == "60"
 
 
 @pytest.mark.asyncio
@@ -119,6 +137,9 @@ async def test_infer_returns_429_when_rate_limit_is_exceeded(
 
     assert response.status_code == 429
     assert response.headers["Retry-After"] == "12"
+    assert response.headers["X-RateLimit-Limit"] == "60"
+    assert response.headers["X-RateLimit-Remaining"] == "0"
+    assert response.headers["X-RateLimit-Reset"] == "12"
     assert response.json() == {"detail": {"error": "rate limit exceeded", "retry_after_s": 12.4}}
 
 
@@ -149,3 +170,56 @@ async def test_infer_returns_503_when_circuit_breaker_is_open(
     assert body["detail"]["error"] == "service unavailable"
     assert body["detail"]["retry_after_s"] > 0
     assert stub_adapter.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_infer_returns_504_when_provider_times_out(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    app_instance.state.inference_service = TimeoutInferenceService()
+
+    response = await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"model": "gpt-4o-mini", "input": "hello world"},
+    )
+
+    assert response.status_code == 504
+    assert response.json() == {
+        "detail": {"error": "LLM provider timeout", "retry_after_s": None}
+    }
+
+
+@pytest.mark.asyncio
+async def test_infer_returns_422_on_validation_error(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    response = await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"input": "hello world"},
+    )
+
+    assert response.status_code == 422
+    assert response.json()["detail"][0]["loc"] == ["body", "model"]
+
+
+@pytest.mark.asyncio
+async def test_infer_returns_502_when_provider_returns_non_timeout_error(
+    async_client, app_instance, valid_headers
+) -> None:
+    app_instance.state.rate_limiter = AllowingRateLimiter()
+    app_instance.state.inference_service = UpstreamErrorInferenceService()
+
+    response = await async_client.post(
+        "/v1/infer",
+        headers=valid_headers,
+        json={"model": "gpt-4o-mini", "input": "hello world"},
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": {"error": "upstream provider error", "retry_after_s": None}
+    }

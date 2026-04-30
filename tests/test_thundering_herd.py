@@ -24,16 +24,16 @@ class InMemoryRedis:
 
 class InMemoryCache:
     def __init__(self) -> None:
-        self._redis = InMemoryRedis()
+        self.redis = InMemoryRedis()
         self._values: dict[str, dict[str, Any]] = {}
 
-    def _make_key(self, model: str, input: str, config: dict[str, Any] | None) -> str:
+    def make_key(self, model: str, input: str, config: dict[str, Any] | None) -> str:
         return repr((model, input, config))
 
     async def get(
         self, model: str, input: str, config: dict[str, Any] | None
     ) -> dict[str, Any] | None:
-        return self._values.get(self._make_key(model, input, config))
+        return self._values.get(self.make_key(model, input, config))
 
     async def set(
         self,
@@ -42,7 +42,7 @@ class InMemoryCache:
         config: dict[str, Any] | None,
         value: dict[str, Any],
     ) -> None:
-        self._values[self._make_key(model, input, config)] = value
+        self._values[self.make_key(model, input, config)] = value
 
 
 class SlowAdapter:

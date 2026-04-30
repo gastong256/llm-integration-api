@@ -21,7 +21,7 @@ Keeping business logic out of routers. Routes stay thin: extract inputs, call se
 
 **Single process, not microservices**
 
-One FastAPI app + one Redis. No Kafka, no Celery, no separate worker processes. The challenge requires `docker-compose up` with zero configuration — adding a broker or a worker service would break that immediately. One process with asyncio handles the concurrency instead.
+One FastAPI app + one Redis. No Kafka, no Celery, no separate worker processes. The challenge requires `docker compose up` with zero configuration — adding a broker or a worker service would break that immediately. One process with asyncio handles the concurrency instead.
 
 Trade-off: single process limits horizontal scaling. In production I'd run multiple replicas behind a load balancer — Redis already handles all the shared state (cache, rate limit counters, CB if moved there), so replicas are stateless and can scale independently.
 
@@ -50,6 +50,10 @@ The simple alternative is `INCR + EXPIRE` — one key per client, increment on e
 Sorted set + `ZREMRANGEBYSCORE` fixes this. Every `check()` call evicts entries older than `now - 60` before counting, so the window always reflects the actual last 60 seconds regardless of what the clock says. More ops per request (5 vs 2), but the correctness guarantee is worth it for an API with strict SLAs.
 
 One deliberate choice: rejected requests don't count toward quota (`ZREM` on denial). A hammering client gets a stable `retry_after_s` based on when real allowed requests expire — not an ever-growing penalty from their own rejected calls.
+
+**Rate-limit headers without changing the error contract**
+
+I added `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and `X-RateLimit-Reset` on successful infer responses and relevant `429`s, but kept the current JSON body and `Retry-After` behavior intact. That gives clients something standard-ish to read and makes the limiter easier to demo, without turning this into a bigger API contract rewrite.
 
 **SHA-256 content-addressed cache keys**
 
@@ -91,19 +95,6 @@ No custom buffer needed. When a client reads slowly, the kernel TCP send buffer 
 
 The request timeout (default 30s via `LLM_TIMEOUT`) is the final safety net. If the client stalls long enough to exceed it, the generator catches the cancellation and closes the upstream LLM connection. No orphaned streams, no memory growth.
 
-### Load testing observations
-
-Measured against the full app with `RATE_LIMIT_RPM=10000`. The point latencies below come from the API's own `latency_ms` field, so they reflect app-side processing time rather than full client-observed RTT.
-
-| Scenario | p50 | p95 | Notes |
-| --- | ---: | ---: | --- |
-| `/v1/infer` cache miss | ~152 ms | — | 40 samples |
-| `/v1/infer` cache hit | ~0.2 ms | — | 40 samples |
-| `/v1/classify` | ~1 ms | — | 40 samples |
-| Locust, 8 users | ~7 ms | ~11 ms | mixed workload, ~166 req/s, 0 failures |
-
-Main signal is the gap between infer cache miss and cache hit. On the mixed Locust workload, the service sustained ~166 req/s with 0 failures at 8 users. At 100 users it still returned 0 failures, but latency degraded sharply instead of holding flat: aggregate p50 was ~85 ms, aggregate p95 was ~1000 ms, and `/v1/infer` median was ~1100 ms. So the useful read is "kept serving under pressure", not "scales cleanly to 100 users".
-
 ---
 
 ## 4. LLM adapter design
@@ -116,7 +107,7 @@ Timeout is globally configurable via `LLM_TIMEOUT` env var (default 30s). Per-re
 
 **Stub as default, no real provider needed**
 
-Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real provider. The stub lets `docker-compose up` work without any credentials — that's a hard requirement for this challenge. Either way the service sees the same interface, doesn't matter what's behind it.
+Default adapter is a deterministic stub. `LLM_ADAPTER=http` switches to a real provider. The stub lets `docker compose up` work without any credentials — that's a hard requirement for this challenge. Either way the service sees the same interface, doesn't matter what's behind it.
 
 **Usage field names**
 
@@ -126,9 +117,27 @@ The HTTP adapter returns provider-native keys (`prompt_tokens`, `completion_toke
 
 `STUB_FAILURE_RATE` (0.0–1.0) lets me demo the circuit breaker without a real provider. Set it to 0.8, fire 10 requests, watch the circuit open. Without this, validating CB behavior would require either a flaky real provider or manual code changes. Worth the one extra config field.
 
-**Adapter for LLMs, dict registry for ML models**
+**Adapter for LLMs, small SDK boundary for ML models**
 
-LLM providers differ enough (stub, HTTP, different APIs) to justify an ABC. ML models don't — both versions are sklearn pipelines with the same `predict()` interface. A dict `{version: model}` looked up by `X-Model-Version` is simpler and more honest than wrapping identical objects in adapters. I'd only add an adapter layer for ML models if serving grew to include ONNX, Triton, or remote inference.
+LLM providers still sit behind an ABC because the integration points really differ. Local classify models now sit behind a small internal wrapper contract in `sdk/`, with service-specific implementations in `app/models/`. That gives me one stable classify boundary without pretending these wrappers are already a separate published library.
+
+I kept that SDK internal on purpose. I wanted a real boundary and a real migration path, not the overhead of packaging and versioning another artifact before a second service exists.
+
+The reusable part is just the generic wrapper contract plus the registry. `app/core/model_registry.py` only wires local wrappers into that registry and resolves them by version. So there isn't a second classify registry hiding in the app layer.
+
+The wrapper schemas are part of the runtime path now instead of metadata on the side. `ClassifyService` builds the payload through `wrapper.input_schema`, and the wrapper itself is the authority for returning the right output model. The old direct predict path stays gone.
+
+**Preprocess and postprocess live with the wrapper**
+
+Input normalization and output shaping live in the local sentiment wrapper layer instead of leaking into `ClassifyService`. So the service just resolves the wrapper, builds the payload, calls `predict()`, and maps the result to the HTTP response.
+
+For this project I kept the preprocessing simple: string cleanup plus output normalization. That felt more honest than dragging in a heavy dependency just to prove the wrapper can do prep work. The important part is where that logic lives, not making it look fancier than the model actually needs.
+
+If this grew into more structured feature prep or batch-oriented work later, this same model layer is where I'd use tools like pandas. I just didn't want to force that into a one-text request path that doesn't really need it.
+
+Training and serving now line up around that same cleanup. The training script applies the same normalization logic conceptually before fitting, even though I kept that code duplicated on purpose instead of importing runtime modules into a one-off model-generation script.
+
+The training data also moved away from the generic placeholder sentiment examples from `v1.0.0` and into small retail-observation phrases. That fits the company context better and still preserves the point of the two model versions: `v1` is unigram-based, `v2` sees bigrams too, so negation cases like `pricing is not accurate` still split them in a useful way.
 
 **Models load in lifespan with `to_thread`**
 
@@ -172,7 +181,35 @@ When the circuit is open, `get_retry_after()` returns `recovery_timeout - (now -
 
 The spec example shows `retry_after_s: 45` with a 60s timeout. The only way those two numbers are consistent is if the circuit opened 15s earlier — the field is remaining time, not total timeout. Dynamic is also just more useful.
 
----
+**Exception mapping is centralized, not route-by-route**
+
+I moved the exception-to-response translation into global handlers and kept the services raising domain errors. That cleaned up the routes quite a bit and made the error behavior look deliberate instead of a pile of local `try/except` blocks.
+
+I kept the public semantics the same on purpose: same `400/429/503/504` statuses, same `Retry-After` behavior where it already existed, and FastAPI's normal `422` body for validation. So the improvement is mainly in coherence and maintenance, not a contract rewrite.
+
+**Uvicorn access logs are off for the demo path**
+
+Uvicorn access logs are off in the local run path and in the container command. The app is already emitting structured JSON events with better context, so the plaintext access lines were mostly noise during the demo.
+
+I didn't try to fully rewire Uvicorn logging into `structlog`. That felt like a lot of churn for very little gain here. Killing the noisy part was enough.
+
+**Logs carry request and trace correlation together**
+
+`request_id` was already useful inside the app. Once I started showing traces too, that wasn't enough on its own. Logs now carry `request_id` plus `trace_id` and `span_id` when a request is traced, using the active OpenTelemetry span at log emission time.
+
+That keeps the implementation local and small, and it gives logs and Jaeger a shared handle instead of two parallel observability stories.
+
+**Safe observability is narrow and intentional**
+
+Bounded prompt/output visibility made more sense than either leaving payloads raw or dropping them entirely. The goal is to keep enough context to explain what happened while avoiding the sloppy "log everything" story.
+
+The masking is intentionally narrow too. I only hide obvious keys like `api_key`, `token`, and `authorization`, and I only do it on the logging-visible payloads. That's enough maturity to talk about without pretending this project includes a full privacy or compliance subsystem.
+
+**gRPC is a design artifact here, not a second runtime**
+
+A small `.proto` file is enough to show how classify could evolve toward an internal model-serving boundary over gRPC while keeping HTTP at the edge. That gives me something concrete to point at without bloating the project with a second server, generated code, or a fake half-implementation.
+
+The important part here is the boundary, not the transport runtime. So HTTP still owns the gateway path, and gRPC stays as a design artifact for the next hop inward.
 
 ## 5. Road to production
 
@@ -216,6 +253,79 @@ Each layer scales independently. This API doesn't know what the domain is — it
 
 ---
 
-## Tooling note
+## 6. Observability and walkthrough notes
 
-I used AI assistants for a few mechanical tasks, mainly around synthetic test data and early documentation scaffolding. The architecture decisions, trade-offs, and final implementation choices are my own.
+**Observability as an overlay, not a base-stack mutation**
+
+I kept Jaeger, Prometheus, Grafana, and the OTel collector in `docker-compose.observability.yml` instead of bloating the original `docker-compose.yml`. The base stack stays simple, and the observability stack becomes an additive overlay I can turn on when I want the full tracing and metrics story.
+
+Trade-off is one extra compose file and a slightly more complex startup command. Worth it because it keeps the default project path clean while making the richer observability workflow explicit.
+
+**Provisioned dashboards, not click-ops**
+
+Prometheus and Grafana are provisioned from repo files. Manual setup is fragile and easy to forget; repo-backed provisioning is boring in the best way and keeps the stack reproducible.
+
+**OpenTelemetry, not Jaeger-specific wiring**
+
+I used OpenTelemetry as the tracing layer and OTLP as the export path. Jaeger is just the backend I happened to plug in for this demo. That keeps the instrumentation portable if I ever want Tempo or Datadog later, and it avoids hard-wiring the app to one tracing vendor.
+
+I considered just leaning on logs and metrics, or wiring straight to Jaeger-specific bits. Didn't love either. OTel is the cleaner boundary.
+
+**Tracing stays opt-in**
+
+I only initialize tracing when `OTEL_EXPORTER_OTLP_ENDPOINT` is present. So the base stack still behaves like the default local setup, and the extra tracing path only shows up when the observability overlay is enabled on purpose.
+
+That felt better than making tracing a silent runtime dependency of the app all the time. The demo gets full traces; the base project stays clean.
+
+I also pulled the tracing env vars into the main settings surface once the project started carrying more config. The app runtime now reads one settings object for both normal behavior and the optional tracing path, while Locust-specific overrides stay local to the load script because they aren't app config.
+
+**Manual spans stay close to the real gateway path**
+
+I added a small set of manual spans around the parts I actually care about when explaining a request: cache check, circuit breaker check, LLM call, cache write, and response build. That reads much better in Jaeger than a pile of generic framework spans or every tiny helper call.
+
+I could have traced more, but it would mostly add noise. For this demo I want the trace tree to be understandable in a few seconds.
+
+I did factor the repeated tracing boilerplate into a tiny helper. But I kept `start_as_current_span(...)` in the services so the business flow still reads directly from the request path instead of disappearing behind decorators or middleware.
+
+**Streaming traces focus on lifecycle, not per-token detail**
+
+For SSE I kept the manual tracing at the lifecycle level: stream start, chunk activity, cancellation, and audit dispatch. That's enough to show the happy path and the cancellation path without turning one stream into a noisy trace full of token-level children.
+
+If I ever needed to debug backpressure or token pacing in production, then I'd consider going deeper. Didn't feel worth it here.
+
+**Cost stays as estimated cost from post-flight usage**
+
+I kept cost as estimated cost derived from the usage numbers I already get back after a successful LLM call. That's enough for the demo and keeps the whole thing deterministic. I didn't want to drag in provider billing APIs or some external metering product just to say something useful about spend.
+
+So the app now increments token counters and one estimated cost counter from the same normalized usage contract it already returns in `/v1/infer`.
+
+**Input and output tokens stay split**
+
+I kept separate token counters for input and output instead of one flat total. Pricing is usually different on both sides, so merging them would make the cost story weaker and harder to explain.
+
+Could have pushed the cost math into Grafana from raw counters only. I didn't. I'd rather expose both the raw token dimensions and the estimated cost directly from the app.
+
+**The dashboard stays compact and demo-oriented**
+
+I kept the dashboard tight on purpose, but I shifted it away from fragile instant-only signals and toward a mix of stable range stats plus a few live trends. The top row now answers "what happened in the selected window" with:
+
+- requests served
+- latency p50 / p95 in range
+- cache hits in range
+- circuit-open rejections in range
+- rate-limit rejections in range
+
+Then the lower charts keep a small live view for:
+
+- request rate over time
+- latency over time
+- cache / protection events over time
+- input tokens in range
+- output tokens in range
+- estimated cost in range
+
+That shape tells the live story better. I don't have to stare at Grafana at the exact second a burst is running just to prove the cache or limiter fired. The evidence stays visible in the selected time range, which is both better for the demo and closer to how I'd explain a short benchmark session in a real review.
+
+If this grew into a real production dashboard, I'd split it into a few focused views instead of stuffing everything into one screen.
+
+---

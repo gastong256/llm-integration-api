@@ -8,6 +8,14 @@ from pathlib import Path
 import redis.asyncio as aioredis
 import structlog
 from fastapi import FastAPI, Request
+from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.httpx import HTTPXClientInstrumentor
+from opentelemetry.instrumentation.redis import RedisInstrumentor
+from opentelemetry.sdk.resources import Resource
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from prometheus_client import Counter, Histogram
 from prometheus_fastapi_instrumentator import Instrumentator
 from starlette.responses import Response
@@ -15,6 +23,7 @@ from starlette.responses import Response
 from app.adapters.base import BaseLLMAdapter
 from app.adapters.http import HttpLLMAdapter
 from app.adapters.stub import StubLLMAdapter
+from app.api.exception_handlers import register_exception_handlers
 from app.api.middleware.request_context import RequestContextMiddleware
 from app.api.routes.classify import router as classify_router
 from app.api.routes.health import router as health_router
@@ -22,6 +31,7 @@ from app.api.routes.infer import router as infer_router
 from app.api.routes.stream import router as stream_router
 from app.core.circuit_breaker import CircuitBreaker
 from app.core.model_registry import ModelRegistry
+from app.core.observability import add_trace_correlation
 from app.core.settings import Settings, get_settings
 from app.infra.cache import SemanticCache
 from app.infra.rate_limiter import SlidingWindowRateLimiter
@@ -30,12 +40,19 @@ from app.services.inference_service import InferenceService
 from app.services.streaming_service import StreamingService
 
 logger = structlog.get_logger()
+otel_provider: TracerProvider | None = None
+otel_instrumented = False
 
 MODELS_DIR = Path(__file__).resolve().parents[1] / "models"
 REQUEST_LATENCY = Histogram(
     "llm_api_request_latency_seconds",
     "Application request latency in seconds.",
     buckets=(0.01, 0.05, 0.1, 0.2, 0.5, 1.0, 2.0, 5.0),
+)
+HTTP_REQUESTS = Counter(
+    "llm_api_http_requests_total",
+    "Application HTTP requests grouped by normalized path and status class.",
+    ["path", "status_class"],
 )
 CACHE_HITS = Counter(
     "llm_api_cache_hits_total",
@@ -49,10 +66,22 @@ CIRCUIT_OPENS = Counter(
     "llm_api_circuit_open_total",
     "Requests rejected because the circuit breaker was open.",
 )
+TOKENS = Counter(
+    "llm_api_tokens_total",
+    "LLM tokens recorded after successful provider calls.",
+    ["model", "type"],
+)
+COST_ESTIMATED = Counter(
+    "llm_api_cost_estimated_usd_total",
+    "Estimated LLM cost in USD recorded after successful provider calls.",
+    ["model"],
+)
+TRACKED_HTTP_PATHS = frozenset({"/health", "/v1/infer", "/v1/infer/stream", "/v1/classify"})
 
 structlog.configure(
     processors=[
         structlog.contextvars.merge_contextvars,
+        add_trace_correlation,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso"),
         structlog.processors.JSONRenderer(),
@@ -96,12 +125,67 @@ def _build_adapter(settings: Settings) -> BaseLLMAdapter:
     raise ValueError(f"unsupported llm adapter: {settings.llm_adapter}")
 
 
+def _estimate_cost_usd(settings: Settings, usage: dict[str, int]) -> float:
+    return (
+        usage["tokens_in"] / 1000 * settings.llm_price_input_per_1k_tokens_usd
+        + usage["tokens_out"] / 1000 * settings.llm_price_output_per_1k_tokens_usd
+    )
+
+
+def _build_usage_metrics_recorder(settings: Settings) -> Callable[[str, dict[str, int]], None]:
+    def record_usage_metrics(model: str, usage: dict[str, int]) -> None:
+        TOKENS.labels(model=model, type="input").inc(usage["tokens_in"])
+        TOKENS.labels(model=model, type="output").inc(usage["tokens_out"])
+        COST_ESTIMATED.labels(model=model).inc(_estimate_cost_usd(settings, usage))
+
+    return record_usage_metrics
+
+
+def _metric_path_label(path: str) -> str:
+    return path if path in TRACKED_HTTP_PATHS else "other"
+
+
+def _status_class_label(status_code: int) -> str:
+    return f"{status_code // 100}xx"
+
+
+def _configure_tracing(settings: Settings, app: FastAPI) -> TracerProvider | None:
+    endpoint = settings.otel_exporter_otlp_endpoint
+    if not endpoint:
+        return None
+
+    service_name = settings.otel_service_name
+
+    global otel_provider
+    global otel_instrumented
+
+    if otel_provider is None:
+        otel_provider = TracerProvider(resource=Resource.create({"service.name": service_name}))
+        otel_provider.add_span_processor(
+            BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=True))
+        )
+        trace.set_tracer_provider(otel_provider)
+
+    if not otel_instrumented:
+        HTTPXClientInstrumentor().instrument(tracer_provider=otel_provider)
+        RedisInstrumentor().instrument(tracer_provider=otel_provider)
+        otel_instrumented = True
+
+    if not getattr(app.state, "fastapi_tracing_enabled", False):
+        FastAPIInstrumentor.instrument_app(app, tracer_provider=otel_provider)
+        app.state.fastapi_tracing_enabled = True
+
+    app.state.tracing_provider = otel_provider
+    return otel_provider
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
+    tracer_provider = _configure_tracing(settings, app)
     circuit_breaker = CircuitBreaker()
     adapter = _build_adapter(settings)
-    model_registry = ModelRegistry(MODELS_DIR / "v1.joblib", MODELS_DIR / "v2.joblib")
+    model_registry = ModelRegistry(MODELS_DIR)
     # joblib.load is blocking, so model loading goes through to_thread inside the registry.
     redis_resources, loaded_versions = await asyncio.gather(
         _build_redis_dependencies(settings),
@@ -115,7 +199,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     app.state.models_loaded = loaded_versions
     app.state.model_registry = model_registry
     app.state.classify_service = ClassifyService(model_registry)
-    app.state.inference_service = InferenceService(adapter, cache, circuit_breaker)
+    app.state.inference_service = InferenceService(
+        adapter,
+        cache,
+        circuit_breaker,
+        record_usage_metrics=_build_usage_metrics_recorder(settings),
+    )
     app.state.streaming_service = StreamingService(adapter, circuit_breaker)
 
     logger.info("startup", message="AI Inference API starting up", models_loaded=loaded_versions)
@@ -124,6 +213,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     if isinstance(adapter, HttpLLMAdapter):
         await adapter.aclose()
     await redis_client.aclose()
+    if tracer_provider is not None:
+        # The instrumented runtime is process-wide in this app, so flushing here is enough.
+        # Shutting the provider down inside lifespan makes repeated same-process lifecycles awkward.
+        tracer_provider.force_flush()
     logger.info("shutdown", message="AI Inference API shutting down")
 
 
@@ -133,6 +226,7 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+register_exception_handlers(app)
 
 
 @app.middleware("http")
@@ -140,6 +234,7 @@ async def record_metrics(request: Request, call_next: Callable) -> Response:
     started_at = time.perf_counter()
     response = await call_next(request)
     path = request.url.path
+    metric_path = _metric_path_label(path)
 
     if path == "/v1/infer" and response.headers.get("content-type", "").startswith(
         "application/json"
@@ -155,6 +250,10 @@ async def record_metrics(request: Request, call_next: Callable) -> Response:
 
     if path != "/metrics":
         REQUEST_LATENCY.observe(time.perf_counter() - started_at)
+        HTTP_REQUESTS.labels(
+            path=metric_path,
+            status_class=_status_class_label(response.status_code),
+        ).inc()
         if response.status_code == 429:
             RATE_LIMITS.inc()
 

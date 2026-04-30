@@ -4,12 +4,14 @@ This document provides a focused manual validation flow for the critical challen
 
 It is intentionally smaller than a full QA checklist. The goal is to verify the main R1, R2, and R3 flows, plus the most important resilience behaviors: cache hits, rate limiting, circuit breaker opening, streaming cancellation, and degraded Redis mode.
 
+For the observability overlay and the guided live presentation flow, use [docs/demo.md](demo.md).
+
 ## Prerequisites
 
 From the repository root:
 
 ```bash
-docker-compose up --build
+docker compose up --build
 ```
 
 Leave the stack running and execute the checks below against `http://localhost:8000`.
@@ -194,7 +196,7 @@ Expected:
 curl -s -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}' | python3 -m json.tool
+  -d '{"input":"pricing is not accurate"}' | python3 -m json.tool
 ```
 
 Expected:
@@ -212,7 +214,7 @@ curl -s -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "X-Model-Version: v2" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}' | python3 -m json.tool
+  -d '{"input":"pricing is not accurate"}' | python3 -m json.tool
 ```
 
 Expected:
@@ -240,8 +242,8 @@ Expected:
 Restart the stack with forced stub failures:
 
 ```bash
-docker-compose down
-STUB_FAILURE_RATE=1.0 docker-compose up --build
+docker compose down
+STUB_FAILURE_RATE=1.0 docker compose up --build
 ```
 
 Then:
@@ -285,8 +287,8 @@ Expected:
 Reset to normal after this check:
 
 ```bash
-docker-compose down
-docker-compose up --build
+docker compose down
+docker compose up --build
 ```
 
 ---
@@ -316,7 +318,7 @@ Expected:
 Stop Redis while the app is still running:
 
 ```bash
-docker-compose stop redis
+docker compose stop redis
 ```
 
 ### Infer should fail gracefully
@@ -358,7 +360,7 @@ Expected:
 Restart Redis:
 
 ```bash
-docker-compose start redis
+docker compose start redis
 ```
 
 Expected:

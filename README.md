@@ -9,7 +9,7 @@ LLM proxy with Redis-backed caching, sliding-window rate limiting, and a circuit
 Docker quick start does not require `make setup`.
 
 ```bash
-make up          # docker-compose up --build (app + redis)
+make up          # docker compose up --build (app + redis)
 curl http://localhost:8000/health
 ```
 
@@ -26,6 +26,17 @@ make run         # uvicorn with --reload
 make setup
 make test
 ```
+
+Common workflows:
+
+```bash
+RATE_LIMIT_RPM=10000 make up STACK=obs ARGS="--build -d"
+make logs STACK=obs ARGS="--no-color --tail=200 app"
+make demo ARGS="--auto --scene 2"
+make bench ARGS="--headless -u 8 -r 2 -t 20s --host http://localhost:8000"
+```
+
+`make up` uses the standard `RATE_LIMIT_RPM=60` unless you override it explicitly for load testing.
 
 ---
 
@@ -55,6 +66,26 @@ Client
   │
   └── GET /metrics ──────────→ Prometheus counters + latency histogram
 ```
+
+### Where This Sits
+
+```
+Client / BFF
+     │
+     ▼
+[RAG / Domain Service]    ← retrieves data, builds prompts, knows the business
+     │
+     ▼
+[This Inference API]      ← auth, rate limit, cache, CB, model serving
+     │
+     ▼
+[LLM Gateway]             ← provider routing, fallback, cost tracking
+     │
+     ▼
+[Providers / local models]
+```
+
+Each layer scales independently. This API does not know what the domain is; it receives a prompt and returns a response. Business logic lives upstream.
 
 ---
 
@@ -116,7 +147,7 @@ Default `v1`:
 curl -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}'
+  -d '{"input":"pricing is not accurate"}'
 ```
 
 ```json
@@ -130,7 +161,7 @@ curl -X POST http://localhost:8000/v1/classify \
   -H "X-API-Key: test-key-1" \
   -H "X-Model-Version: v2" \
   -H "Content-Type: application/json" \
-  -d '{"input":"invoice not accepted"}'
+  -d '{"input":"pricing is not accurate"}'
 ```
 
 ```json
@@ -164,6 +195,72 @@ For a focused manual validation flow covering the critical challenge behaviors �
 
 ---
 
+## Local observability and walkthrough
+
+The project also includes an observability overlay and a guided walkthrough around the base gateway path.
+
+### Observability overlay
+
+Bring the full demo stack up with:
+
+```bash
+make up STACK=obs ARGS="--build -d"
+```
+
+Useful URLs:
+- app: `http://localhost:8000`
+- Jaeger: `http://localhost:16686`
+- Grafana: `http://localhost:3000`
+- Prometheus: `http://localhost:9090`
+
+For the demo-oriented Grafana dashboard, `Last 15 minutes` or `Last 30 minutes` is the most useful time picker because the key panels are intentionally range-based instead of only showing instant rates.
+
+Tracing stays opt-in. The base stack still works on its own; the overlay just turns on the extra observability path by setting:
+- `OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317`
+- `OTEL_SERVICE_NAME=inference-api`
+
+### Guided demo runner
+
+The live demo flow is scripted in `scripts/demo.py`.
+
+```bash
+make demo
+```
+
+Helpful variants:
+
+```bash
+make demo ARGS="--auto"
+make demo ARGS="--auto --scene 3"
+```
+
+The full scene order and the live presentation notes are in [docs/demo.md](docs/demo.md).
+
+### Internal model boundary
+
+`/v1/classify` now runs through a small internal wrapper contract in `sdk/`, with the concrete wrappers kept in `app/models/`. That keeps the SDK real but still repo-local, and it means the running app uses the same boundary the code is describing.
+
+### Estimated cost metrics
+
+The app now emits:
+- input token counters
+- output token counters
+- `estimated cost` counters
+
+Cost is derived from post-flight `usage` plus configured pricing. It is useful operationally, but it is only an estimate.
+
+### Logs and traces
+
+Structured logs still carry `request_id`, and traced requests now also carry `trace_id` and `span_id`. This makes log-to-trace correlation explicit in the walkthrough and in local debugging.
+
+Prompt and output previews in demo-visible logs are bounded on purpose, and obvious secret-bearing keys like `api_key`, `token`, and `authorization` are masked in log-visible payloads.
+
+### gRPC evolution artifact
+
+There is no runnable gRPC server in the current project. The `.proto` file in `protos/model_serving.proto` documents a possible internal evolution toward an HTTP edge -> gRPC model-serving split.
+
+---
+
 ## Configuration
 
 All settings are env vars with defaults that work out of the box for local runs. Docker Compose injects its own container-specific `REDIS_URL`.
@@ -179,8 +276,30 @@ All settings are env vars with defaults that work out of the box for local runs.
 | `LLM_TIMEOUT` | `30` | HTTP timeout in seconds |
 | `LLM_API_KEY` | — | Optional bearer token for the HTTP adapter |
 | `STUB_FAILURE_RATE` | `0.0` | Stub-only failure rate. `1.0` makes every stub call time out |
+| `LLM_PRICE_INPUT_PER_1K_TOKENS_USD` | `0.00015` | Estimated-cost input token pricing |
+| `LLM_PRICE_OUTPUT_PER_1K_TOKENS_USD` | `0.0006` | Estimated-cost output token pricing |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | — | Optional OTLP gRPC endpoint. Needed only for the observability overlay |
+| `OTEL_SERVICE_NAME` | `inference-api` | Service name reported to OpenTelemetry when tracing is enabled |
 
 Copy `.env.example` to `.env` to override locally.
+
+Load-test-only env vars stay local to `scripts/locustfile.py`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `LOCUST_API_KEY` | `test-key-1` | API key used by the Locust users |
+| `LOCUST_INFER_MODEL` | `gpt-4o-mini` | Model sent to `/v1/infer` during load runs |
+| `LOCUST_CLASSIFY_VERSION` | `v1` | `X-Model-Version` sent to `/v1/classify` during load runs |
+
+Demo-runner-only env vars stay local to `scripts/demo.py`:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DEMO_BASE_URL` | `http://localhost:8000` | Base URL used by the guided demo runner |
+| `DEMO_JAEGER_URL` | `http://localhost:16686` | Jaeger URL used by the guided demo runner |
+| `DEMO_GRAFANA_URL` | `http://localhost:3000` | Grafana URL used by the guided demo runner |
+| `DEMO_API_KEY` | `test-key-1` | Primary API key used during the guided demo |
+| `DEMO_RATE_LIMIT_KEY` | `test-key-2` | Separate API key used in the rate-limit scene |
 
 ---
 
@@ -203,23 +322,38 @@ make precommit   # all pre-commit hooks
 ## Load Testing
 
 ```bash
-uv run locust -f scripts/locustfile.py --headless -u 50 -r 10 -t 30s \
-  --host http://localhost:8000
+make bench ARGS="--headless -u 50 -r 10 -t 30s --host http://localhost:8000"
 ```
 
 The default `RATE_LIMIT_RPM=60` will dominate results before you see anything useful about throughput. For real load tests, raise it:
 
 ```bash
-RATE_LIMIT_RPM=10000 make run
+RATE_LIMIT_RPM=10000 make up ARGS="--build -d"
 ```
 
-Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. In production, use dedicated load-test API keys with relaxed limits rather than touching the global default.
+Then run Locust in a second terminal. The current `scripts/locustfile.py` mixes `/v1/infer` and `/v1/classify`, so these runs reflect the repo's demo traffic mix rather than infer-only throughput. If you want to pair the run with Jaeger and Grafana, lift the observability overlay instead:
+
+```bash
+RATE_LIMIT_RPM=10000 make up STACK=obs ARGS="--build -d"
+```
+
+In local runs, the main signal is still the gap between an infer cache miss and a warm cache hit. The benchmark doc keeps fresh sample numbers and the matching observability readings so the README can stay short.
+
+Supported Locust overrides:
+- `LOCUST_API_KEY`
+- `LOCUST_INFER_MODEL`
+- `LOCUST_CLASSIFY_VERSION`
+- `LOCUST_INFER_WEIGHT`
+- `LOCUST_CLASSIFY_WEIGHT`
+- `LOCUST_INFER_INPUT_MODE`
+
+For the repeated mixed, warm-cache, and classify-only runs, plus the matching Grafana / Prometheus / Jaeger readings, see [docs/benchmarks.md](docs/benchmarks.md).
 
 ---
 
 ## Models
 
-`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. `docker-compose up` works without any extra steps.
+`models/v1.joblib` and `models/v2.joblib` are pre-trained scikit-learn pipelines (TF-IDF + logistic regression) committed to the repo. They were trained on small retail-observation sentiment examples so the classify demo stays closer to the company domain. `make up` works without any extra steps.
 
 To regenerate the models from scratch:
 
@@ -232,6 +366,10 @@ uv run python scripts/train_models.py
 ## Design Notes
 
 Architecture decisions, trade-off rationale, and load scenario documentation are in [DECISIONS.md](DECISIONS.md).
+
+## Tooling note
+
+I used AI assistants for a few mechanical tasks, mainly around synthetic test data and early documentation scaffolding. The architecture decisions, trade-offs, and final implementation choices are my own.
 
 ---
 
